@@ -409,7 +409,7 @@ impl SmtString {
     /// # Examples
     /// ```
     /// use smt_strings::{SmtString, SmtChar};
-    /// let s: SmtSring = "foo".into();
+    /// let s: SmtString = "foo".into();
     ///
     /// assert_eq!( s.take(2), SmtString::from("fo"));
     /// assert!(s.take(10) == s);
@@ -442,7 +442,7 @@ impl SmtString {
     /// ```
     /// use smt_strings::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
-    /// let rev = s.reverse();
+    /// let rev = s.reversed();
     /// let mut iter = rev.iter();
     /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));
     /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));

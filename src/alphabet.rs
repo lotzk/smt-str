@@ -157,7 +157,7 @@ impl CharRange {
     /// assert!(!CharRange::new('a', 'z').is_full());
     /// ```
     pub fn is_full(&self) -> bool {
-        self.start == SmtChar::from(0) && self.end == SmtChar::from(0x2FFFF)
+        self.start == SmtChar::from(0) && self.end == SmtChar::MAX
     }
 
     /// Check if a character is in the range.

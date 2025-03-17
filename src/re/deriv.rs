@@ -169,7 +169,7 @@ mod test {
     }
 
     #[quickcheck]
-    fn deriv_none(c: char) {
+    fn deriv_none(c: SmtChar) {
         let mut builder = ReBuilder::non_optimizing();
         let r = builder.none();
         let expected = builder.none();
@@ -177,7 +177,7 @@ mod test {
     }
 
     #[quickcheck]
-    fn deriv_all(c: char) {
+    fn deriv_all(c: SmtChar) {
         let mut builder = ReBuilder::non_optimizing();
         let r = builder.all();
         let expected = builder.all();

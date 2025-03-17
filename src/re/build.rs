@@ -630,7 +630,7 @@ mod test {
     #[test]
     fn intern_range_full() {
         let mut builder = ReBuilder::default();
-        let r1 = builder.range_from_to('\0', '\u{10FFFF}');
+        let r1 = builder.range_from_to('\0', SmtChar::MAX);
         let r2 = builder.any_char();
         assert!(Rc::ptr_eq(&r1, &r2));
     }

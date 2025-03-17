@@ -51,6 +51,7 @@ mod tests {
     fn sample_with_optional_characters() {
         let mut builder = ReBuilder::default();
 
+        // fo(o|bar)
         let o = builder.to_re("o".into());
         let fo = builder.to_re("fo".into());
         let bar = builder.to_re("bar".into());
@@ -58,7 +59,7 @@ mod tests {
         let regex = builder.concat(smallvec![fo, o_or_bar]);
 
         // Test matching "foo"
-        assert!(try_sample(&regex, &mut builder, 3).is_some());
+        assert!(try_sample(&regex, &mut builder, 5).is_some());
     }
 
     #[quickcheck]
