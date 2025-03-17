@@ -204,6 +204,44 @@ impl CharRange {
         let end = self.end.min(other.end);
         CharRange::new(start, end)
     }
+
+    /// Returns the complement of the SMT-LIB alphabet w.r.t. this range.
+    /// If this range is `[a, b]`, the complement is a union of ranges containing
+    ///
+    /// - `[0, a-1]`  if `a > 0`,
+    /// - and `[b+1, MAX]` if `b < MAX`.
+    ///
+    /// Thus, the complement of an empty range is the full alphabet and the complement of the full alphabet is empty.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_strings::alphabet::CharRange;
+    /// use smt_strings::SmtChar;
+    ///
+    /// let range = CharRange::new('a', 'd');
+    /// let complement = range.complement();
+    /// let mut iter = complement.into_iter();
+    /// assert_eq!(iter.next(), Some(CharRange::new(SmtChar::from(0), SmtChar::from('a').saturating_prev())));
+    /// assert_eq!(iter.next(), Some(CharRange::new(SmtChar::from('d').saturating_next(), SmtChar::MAX)));
+    /// assert_eq!(iter.next(), None);
+    ///
+    /// assert_eq!(CharRange::empty().complement(), vec![CharRange::all()]);
+    /// assert_eq!(CharRange::all().complement(), vec![]);
+    /// ```
+    pub fn complement(&self) -> Vec<CharRange> {
+        if self.is_empty() {
+            return vec![CharRange::all()];
+        }
+
+        let mut result = Vec::new();
+        if self.start > SmtChar::from(0) {
+            result.push(Self::new(0, self.start.saturating_prev()));
+        }
+        if self.end < SmtChar::MAX {
+            result.push(Self::new(self.end.saturating_next(), SmtChar::MAX));
+        }
+        result
+    }
 }
 
 impl PartialOrd for CharRange {

@@ -1,4 +1,6 @@
 pub mod alphabet;
+#[cfg(feature = "automata")]
+pub mod automata;
 pub mod re;
 
 use std::{fmt::Display, ops::Index};
