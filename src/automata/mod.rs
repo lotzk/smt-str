@@ -1,3 +1,5 @@
+//! Module for dealing with finite automata.
+
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     error::Error,
@@ -5,14 +7,20 @@ use std::{
 };
 
 pub mod comp;
+mod compile;
 pub mod det;
 mod dfa;
 mod inter;
 mod nfa;
+use compile::Thompson;
 pub use dfa::{DState, DFA};
 pub use nfa::{NState, NFA};
 
-use crate::{alphabet::CharRange, SmtChar, SmtString};
+use crate::{
+    alphabet::CharRange,
+    re::{ReBuilder, Regex},
+    SmtChar, SmtString,
+};
 
 extern crate dot as dotlib;
 
@@ -28,6 +36,11 @@ pub enum AutomatonError {
     NotDeterministic,
 }
 impl Error for AutomatonError {}
+
+pub fn compile(re: &Regex, builder: &mut ReBuilder) -> Result<NFA, AutomatonError> {
+    let mut compiler = Thompson::default();
+    compiler.compile(re, builder)
+}
 
 /// Identifier for a state that is unique within an automaton
 pub type StateId = usize;
@@ -45,13 +58,13 @@ pub enum TransitionType {
 
 impl TransitionType {
     /// Creates a character transition that matches the given character.
-    pub fn char(c: char) -> Self {
-        TransitionType::Range(CharRange::singleton(c))
+    pub fn char(c: impl Into<SmtChar>) -> Self {
+        TransitionType::Range(CharRange::singleton(c.into()))
     }
 
     /// Creates a range transition that matches all characters in the given range [l, u] (both inclusive).
     /// This is equivalent to using `TransitionType::Range(CharRange::new(l, u))`.
-    pub fn range(l: char, u: char) -> Self {
+    pub fn range(l: impl Into<SmtChar>, u: impl Into<SmtChar>) -> Self {
         TransitionType::Range(CharRange::new(l, u))
     }
 
@@ -91,7 +104,7 @@ impl Transition {
     }
 
     /// Creates a new transition that matches the given character and transitions to the given destination state.
-    pub fn char(c: char, destination: StateId) -> Self {
+    pub fn char(c: impl Into<SmtChar>, destination: StateId) -> Self {
         Self::new(TransitionType::char(c), destination)
     }
 
@@ -101,7 +114,11 @@ impl Transition {
     }
 
     /// Creates a new transition that matches all characters in the given range and transitions to the given destination state.
-    pub fn range_from(start: char, end: char, destination: StateId) -> Self {
+    pub fn range_from(
+        start: impl Into<SmtChar>,
+        end: impl Into<SmtChar>,
+        destination: StateId,
+    ) -> Self {
         Self::range(CharRange::new(start, end), destination)
     }
 
@@ -249,8 +266,7 @@ impl<S: State> Automaton<S> {
     }
 
     /// Create a new automaton with the given states.
-    /// The initial state is set to `None` and the set of final states is empty.
-    /// That is, the automaton is accepts the empty language.
+    /// The initial and final states are not set and must be set manually using the `set_initial` and `add_final` methods.
     pub fn from_states(states: Vec<S>) -> Self {
         Self {
             states,
@@ -270,14 +286,14 @@ impl<S: State> Automaton<S> {
     /// Creates a new state and adds it to this automaton.
     /// Returns the identifier of the new state.
     pub fn new_state(&mut self) -> StateId {
-        self.trim = false;
         self.add_state(S::default())
     }
 
-    /// Sets the given state as the initial state of this automaton
-    pub fn set_initial(&mut self, state: StateId) {
+    /// Sets the given state as the initial state of this automaton.
+    /// Returns the previous initial state, if any.
+    pub fn set_initial(&mut self, state: StateId) -> Option<StateId> {
         self.trim = false;
-        self.initial = Some(state);
+        self.initial.replace(state)
     }
 
     /// Adds a transition from the source state to the destination state with the given type.
@@ -728,7 +744,7 @@ impl<S: State> Automaton<S> {
     /// Returns the set of states that the automaton can reach from the given state by reading the given input symbol.
     /// For deterministic automata, this set contains at most one state.
     /// If the returned set is empty, the automaton rejects the input symbol in the given state.
-    pub fn consume(&self, q: StateId, c: char) -> Result<HashSet<StateId>, AutomatonError> {
+    pub fn consume(&self, q: StateId, c: SmtChar) -> Result<HashSet<StateId>, AutomatonError> {
         let mut next = HashSet::new();
         for t in self.get_state(q)?.transitions().iter() {
             if t.matches(c) {

@@ -455,6 +455,28 @@ impl SmtString {
         SmtString(self.0.iter().rev().copied().collect())
     }
 
+    /// Repeat this string `n` times.
+    /// If `n` is zero, the empty string is returned.
+    /// If this string is empty, the empty string is returned.
+    /// If `n` is one, this string is returned.
+    /// Otherwise, the string is repeated `n` times.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_strings::{SmtString, SmtChar};
+    /// let s = SmtString::from("foo");
+    /// assert_eq!(s.repeat(0), SmtString::empty());
+    /// assert_eq!(s.repeat(1), s);
+    /// assert_eq!(s.repeat(2), SmtString::from("foofoo"));
+    /// ```
+    pub fn repeat(&self, n: usize) -> Self {
+        let mut result = Vec::with_capacity(self.len() * n);
+        for _ in 0..n {
+            result.extend(self.0.iter().copied());
+        }
+        SmtString(result)
+    }
+
     /// Returns an iterator over the characters of this string.
     pub fn iter(&self) -> std::slice::Iter<SmtChar> {
         self.0.iter()
