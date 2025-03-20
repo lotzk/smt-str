@@ -9,6 +9,8 @@ pub mod sampling;
 
 use std::{fmt::Display, ops::Index};
 
+use quickcheck::Arbitrary;
+
 /// A unicode character in the range 0x0000 to 0x2FFFF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SmtChar(u32);
@@ -589,28 +591,28 @@ impl Display for SmtString {
     }
 }
 
+impl Arbitrary for SmtChar {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let code = u32::arbitrary(g) % (SMT_MAX_CODEPOINT + 1);
+        SmtChar(code)
+    }
+}
+
+impl Arbitrary for SmtString {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let len = usize::arbitrary(g) % 100;
+        let chars = std::iter::repeat_with(|| SmtChar::arbitrary(g))
+            .take(len)
+            .collect();
+        SmtString(chars)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
-    use quickcheck::{Arbitrary, TestResult};
+    use quickcheck::TestResult;
     use quickcheck_macros::quickcheck;
-
-    impl Arbitrary for SmtChar {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let code = u32::arbitrary(g) % (SMT_MAX_CODEPOINT + 1);
-            SmtChar(code)
-        }
-    }
-
-    impl Arbitrary for SmtString {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let len = usize::arbitrary(g) % 100;
-            let chars = std::iter::repeat_with(|| SmtChar::arbitrary(g))
-                .take(len)
-                .collect();
-            SmtString(chars)
-        }
-    }
 
     use super::*;
 
