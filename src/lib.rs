@@ -315,7 +315,10 @@ impl SmtString {
                 if let Some(smt_char) = SmtChar::unescape(&buffer) {
                     result.push(smt_char);
                 } else {
-                    return None; // Invalid escape sequence
+                    // Invalid escape sequence, treat as literal
+                    for c in buffer.chars() {
+                        result.push(c.into());
+                    }
                 }
             } else {
                 // Process regular character
