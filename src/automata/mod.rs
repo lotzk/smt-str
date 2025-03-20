@@ -4,6 +4,7 @@ pub mod det;
 mod dot;
 pub mod inter;
 
+use std::error::Error;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt::Display,
@@ -145,6 +146,14 @@ impl State {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct StateNotFound(pub StateId);
+
+impl Display for StateNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "State not found: {}", self.0)
+    }
+}
+
+impl Error for StateNotFound {}
 
 /// Every state in a nondeterministic automaton is identified by a unique index.
 pub type StateId = usize;
