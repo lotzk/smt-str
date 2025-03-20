@@ -3,7 +3,7 @@
 //! This module provides a type to represent subsets of the alphabet and utilities to work with them.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{btree_map, BTreeMap, BTreeSet},
     fmt::Display,
 };
 
@@ -1007,6 +1007,16 @@ impl<T: Clone> AlphabetPartitionMap<T> {
             .keys()
             .zip(self.parts.keys().skip(1))
             .all(|(r1, r2)| r1.end < r2.start)
+    }
+}
+
+impl<T: Clone> IntoIterator for AlphabetPartitionMap<T> {
+    type Item = (CharRange, T);
+
+    type IntoIter = btree_map::IntoIter<CharRange, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.parts.into_iter()
     }
 }
 
