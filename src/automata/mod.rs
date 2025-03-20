@@ -502,6 +502,85 @@ impl NFA {
         aut
     }
 
+    /// Returns the longest non-cyclic path in the automaton from the initial state to a final state, if it exists.
+    /// The length of the path is the number of transitions in the path and, therefore, the number of characters in the longest word accepted by the automaton.
+    /// Epsilon transitions are not counted in the path length.
+    /// If the automaton is empty or contains a cycle on an accepting path, this returns None.
+    pub fn longest_path(&self) -> Option<usize> {
+        let mut queue = VecDeque::new();
+        let mut seen = HashSet::new();
+        queue.push_back((self.initial?, 0));
+        seen.insert(self.initial?);
+
+        let mut longest = -1;
+        while let Some((q, len)) = queue.pop_front() {
+            for t in self.transitions_from(q).unwrap() {
+                let d = if t.is_epsilon() { 0 } else { 1 };
+                let dest = t.get_dest();
+                if !seen.contains(&dest) {
+                    seen.insert(dest);
+                    queue.push_back((dest, len + d));
+                    if self.is_final(dest) {
+                        longest = longest.max(len + d);
+                    }
+                } else {
+                    // If we have a cycle, we can't have a longest path
+                    return None;
+                }
+            }
+        }
+        if longest >= 0 {
+            Some(longest as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the shortest path in the automaton from the initial state to a final state, if it exists.
+    /// The length of the path is the number of transitions in the path and, therefore, the number of characters in the shortest word accepted by the automaton.
+    /// Epsilon transitions are not counted in the path length.
+    /// If the automaton is empty, this returns None.
+    pub fn shortest_path(&self) -> Option<usize> {
+        let mut queue = VecDeque::new();
+        let mut seen = HashSet::new();
+        queue.push_back((self.initial?, 0));
+        seen.insert(self.initial?);
+        while let Some((q, len)) = queue.pop_front() {
+            if self.is_final(q) {
+                return Some(len);
+            }
+            for t in self.transitions_from(q).unwrap() {
+                let d = if t.is_epsilon() { 0 } else { 1 };
+                let dest = t.get_dest();
+                if !seen.contains(&dest) {
+                    seen.insert(dest);
+                    if t.is_epsilon() {
+                        queue.push_front((dest, len));
+                    } else {
+                        queue.push_back((dest, len + d));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns whether the automaton is empty.
+    /// An automaton is empty if either
+    ///
+    /// - it has no final states,
+    /// - it has no initial state, or
+    /// - there is no path from the initial state to a final state.
+    pub fn is_empty(&self) -> bool {
+        if self.trim {
+            return self.finals.is_empty() || self.initial.is_none();
+        } else {
+            // Check if there is a path from the initial state to a final state
+            // If a path exists, then also a shortest path exists
+            self.shortest_path().is_none()
+        }
+    }
+
     /// Returns the set of states that can be reached from the initial state by consuming the given word.
     pub fn run(&self, word: &SmtString) -> HashSet<StateId> {
         let mut current = HashSet::new();
