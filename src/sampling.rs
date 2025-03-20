@@ -4,7 +4,7 @@ use rand::{rng, seq::IteratorRandom};
 
 use crate::{
     automata::{TransitionType, NFA},
-    re::{deriv::Deriver, ReBuilder, Regex},
+    re::{deriv::DerivativeBuilder, ReBuilder, Regex},
     SmtString,
 };
 
@@ -12,7 +12,7 @@ use crate::{
 /// The function aborts if no word is found after `max_depth` steps.
 pub fn sample_regex(regex: &Regex, builder: &mut ReBuilder, max_depth: usize) -> Option<SmtString> {
     let mut w = SmtString::empty();
-    let mut deriver = Deriver::default();
+    let mut deriver = DerivativeBuilder::default();
 
     let mut i = 0;
     let mut re = regex.clone();

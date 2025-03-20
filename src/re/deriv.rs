@@ -7,12 +7,15 @@ use crate::{SmtChar, SmtString};
 
 use super::{union_of_chars, ReBuilder, ReOp, Regex};
 
+/// A builder for calculating derivatives of regular expressions.
+/// The builder caches the derivatives of regular expressions w.r.t. to symbols.
+/// This can be useful when calculating the derivative of a regular expression w.r.t. to the same symbol multiple times.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Deriver {
+pub struct DerivativeBuilder {
     cache: HashMap<(Regex, SmtChar), Regex>,
 }
 
-impl Deriver {
+impl DerivativeBuilder {
     pub fn deriv(&mut self, r: &Regex, c: SmtChar, builder: &mut ReBuilder) -> Regex {
         if let Some(derived) = self.cache.get(&(r.clone(), c)) {
             derived.clone()
@@ -126,7 +129,7 @@ impl Deriver {
 /// New expressions are built using the given [RegexBuilder].
 /// It is a precondition that the given regex is managed by the same [RegexBuilder] as the one passed to this function.
 pub fn deriv(r: &Regex, c: impl Into<SmtChar>, builder: &mut ReBuilder) -> Regex {
-    let mut deriver = Deriver::default();
+    let mut deriver = DerivativeBuilder::default();
     deriver.deriv(r, c.into(), builder)
 }
 
