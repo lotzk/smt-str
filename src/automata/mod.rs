@@ -189,6 +189,17 @@ impl NFA {
         }
     }
 
+    /// Create a new nondeterministic finite automaton that accepts all strings.
+    fn universal() -> Self {
+        let mut aut = Self::new();
+        let q0 = aut.new_state();
+        aut.set_initial(q0).unwrap();
+        aut.add_final(q0).unwrap();
+        aut.add_transition(q0, q0, TransitionType::Range(CharRange::all()))
+            .unwrap();
+        aut
+    }
+
     /// Add a new state to the automaton and return its index.
     pub fn new_state(&mut self) -> StateId {
         let id = self.states.len();
