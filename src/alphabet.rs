@@ -46,8 +46,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// let range = CharRange::all();
     /// assert!(range.contains(0));
@@ -64,8 +64,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// assert_eq!(CharRange::new('a', 'z').size(), 26);
     /// assert_eq!(CharRange::singleton('a').size(), 1);
@@ -87,8 +87,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// assert!(CharRange::empty().is_empty());
     /// assert!(!CharRange::new('a', 'z').is_empty());
@@ -114,8 +114,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'z');
     /// assert!(range.choose().is_some());
@@ -133,8 +133,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// assert!(CharRange::singleton('a').is_singleton());
     /// assert!(!CharRange::new('a', 'z').is_singleton());
@@ -148,8 +148,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// assert!(CharRange::all().is_full());
     /// assert!(CharRange::new(SmtChar::MIN, SmtChar::MAX).is_full());
@@ -165,8 +165,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'z');
     /// assert!(range.contains('a'));
@@ -187,8 +187,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// let r1 = CharRange::new('a', 'm');
     /// let r2 = CharRange::new('a', 'z');
@@ -215,8 +215,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::CharRange;
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::CharRange;
+    /// use smtlib_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'd');
     /// let complement = range.complement();
@@ -300,8 +300,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::{Alphabet, CharRange};
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::{Alphabet, CharRange};
+    /// use smtlib_str::SmtChar;
     ///
     /// let mut alphabet = Alphabet::default();
     /// alphabet.insert(CharRange::new('a', 'd'));
@@ -380,8 +380,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::{Alphabet, CharRange};
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::{Alphabet, CharRange};
+    /// use smtlib_str::SmtChar;
     ///
     /// let mut a1 = Alphabet::default();
     /// a1.insert(CharRange::new('a', 'd'));
@@ -409,8 +409,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::{Alphabet, CharRange};
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::{Alphabet, CharRange};
+    /// use smtlib_str::SmtChar;
     ///
     /// let mut a1 = Alphabet::default();
     /// a1.insert(CharRange::new('a', 'd'));
@@ -446,8 +446,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smt_strings::alphabet::{Alphabet, CharRange};
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::alphabet::{Alphabet, CharRange};
+    /// use smtlib_str::SmtChar;
     ///
     /// let mut a = Alphabet::default();
     /// a.insert(CharRange::new('a', 'd'));
@@ -530,7 +530,7 @@ impl AlphabetPartition {
     /// Creates a partitioning with a single range.
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartition::singleton(range.clone());
@@ -556,7 +556,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     ///
@@ -585,7 +585,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'));
@@ -608,7 +608,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let mut partitioning = AlphabetPartition::empty();
@@ -641,7 +641,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'));
     ///
@@ -669,7 +669,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartition, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning1 = AlphabetPartition::empty();
     /// partitioning1.insert_unchecked(CharRange::new('a', 'z'));
@@ -734,7 +734,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// The range is associated with the given value.
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartitionMap::singleton(range.clone(), 1);
@@ -756,7 +756,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     ///
@@ -785,7 +785,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
@@ -813,7 +813,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
     /// let mut partitioning = AlphabetPartitionMap::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
     /// assert_eq!(partitioning.get(&CharRange::new('a','z')), Some(&0));
@@ -864,7 +864,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smt_strings::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning1 = AlphabetPartitionMap::empty();
     /// partitioning1.insert_unchecked(CharRange::new('a', 'z'), 1);
@@ -1350,6 +1350,15 @@ mod tests {
         let c = a.complement();
         let u = a.union(&c);
         u == Alphabet::full()
+    }
+
+    #[test]
+    fn alphabet_complement_self_full() {
+        let mut a = Alphabet::empty();
+        a.insert(CharRange::new(0, SmtChar(196606)));
+        let c = a.complement();
+        let u = a.union(&c);
+        assert_eq!(u, Alphabet::full())
     }
 
     #[test]

@@ -40,10 +40,10 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('a');
     /// assert_eq!(c.as_char(), 'a');
-    ///
+    ///```
     pub fn as_char(self) -> char {
         std::char::from_u32(self.0).unwrap()
     }
@@ -66,7 +66,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('a');
     /// assert_eq!(c.next(), Some(SmtChar::new('b')));
     /// assert_eq!(SmtChar::MAX.next(), None);
@@ -83,7 +83,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('a');
     /// assert_eq!(c.saturating_next(), SmtChar::new('b'));
     /// assert_eq!(SmtChar::MAX.saturating_next(), SmtChar::MAX);
@@ -101,7 +101,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('b');
     /// assert_eq!(c.prev(), Some(SmtChar::new('a')));
     /// assert_eq!(SmtChar::MIN.prev(), None);
@@ -118,7 +118,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('b');
     /// assert_eq!(c.saturating_prev(), SmtChar::new('a'));
     /// assert_eq!(SmtChar::MIN.saturating_prev(), SmtChar::MIN);
@@ -136,7 +136,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// assert!(SmtChar::new('a').printable());
     /// assert!(!SmtChar::new('\n').printable());
     /// ```
@@ -150,7 +150,7 @@ impl SmtChar {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::SmtChar;
+    /// use smtlib_str::SmtChar;
     /// assert_eq!(SmtChar::new('a').escape(), r#"\u{61}"#);
     /// assert_eq!(SmtChar::new('\n').escape(), r#"\u{A}"#);
     /// assert_eq!(SmtChar::new('🦀').escape(), r#"\u{1F980}"#);
@@ -331,7 +331,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// assert!(SmtString::empty().is_empty());
     /// let s: SmtString = "foo".into();
     /// assert!(!s.is_empty());
@@ -344,7 +344,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// assert_eq!(SmtString::empty().len(), 0);
     /// let s: SmtString = "foo".into();
     /// assert_eq!(s.len(), 3);
@@ -373,7 +373,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let mut s: SmtString = "foo".into();
     /// let other: SmtString = "bar".into();
     /// s.append(&other);
@@ -394,7 +394,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let mut s = SmtString::empty();
     /// s.push(SmtChar::new('f'));
     /// s.push(SmtChar::new('o'));
@@ -411,7 +411,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// let s1 = SmtString::from("foo");
     /// let s2 = SmtString::from("bar");
     /// let s3 = s1.concat(&s2);
@@ -427,7 +427,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s: SmtString = "foobar".into();
     /// assert!(s.contains_char(SmtChar::new('f')));
     /// assert!(s.contains_char(SmtChar::new('o')));
@@ -443,7 +443,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// let s: SmtString = "foobar".into();
     /// assert!(s.contains(SmtString::empty()));
     /// assert!(s.contains(SmtString::from("foo")));
@@ -451,7 +451,7 @@ impl SmtString {
     /// assert!(s.contains(SmtString::from("oba")));
     /// assert!(!s.contains(SmtString::from("baz")));
     /// ```
-    pub fn contains(&self, factor: SmtString) -> bool {
+    pub fn contains(&self, factor: &SmtString) -> bool {
         for i in 0..self.len() {
             if self.drop(i).starts_with(&factor) {
                 return true;
@@ -465,7 +465,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// let s: SmtString = "foobar".into();
     /// assert!(s.starts_with(&SmtString::empty()));
     /// assert!(s.starts_with(&SmtString::from("foo")));
@@ -480,7 +480,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString};
+    /// use smtlib_str::{SmtString};
     /// let s: SmtString = "foobar".into();
     /// assert!(s.ends_with(&SmtString::empty()));
     /// assert!(s.ends_with(&SmtString::from("bar")));
@@ -495,7 +495,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
     /// assert_eq!(s.first(), Some(SmtChar::new('f')));
     /// assert_eq!(SmtString::empty().first(), None);
@@ -510,7 +510,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
     ///
     /// assert_eq!( s.take(2), SmtString::from("fo"));
@@ -528,7 +528,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s = SmtString::from("foo");
     /// assert_eq!(s.drop(2), SmtString::from("o"));
     /// assert_eq!(s.drop(10), SmtString::empty());
@@ -558,7 +558,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
     /// let rev = s.reversed();
     /// let mut iter = rev.iter();
@@ -579,7 +579,7 @@ impl SmtString {
     ///
     /// # Examples
     /// ```
-    /// use smt_strings::{SmtString, SmtChar};
+    /// use smtlib_str::{SmtString, SmtChar};
     /// let s = SmtString::from("foo");
     /// assert_eq!(s.repeat(0), SmtString::empty());
     /// assert_eq!(s.repeat(1), s);
