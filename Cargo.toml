@@ -4,22 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bit-set = "0.8.0"
+bit-set = {version = "0.8.0", optional = true}
 dot = {version = "0.1.4", optional = true}
-indexmap = "2.8.0"
-itertools = "0.14.0"
-quickcheck = "1.0.3"
-smallvec = "1.14.0"
+indexmap = {version = "2.8.0", optional = true}
+itertools = {version = "0.14.0", optional = true}
+smallvec = {version = "1.14.0", optional = true}
 rand = {version = "0.9.0", optional = true}
 
 
 [dev-dependencies]
 quickcheck_macros = "1"
+quickcheck = "1.0.3"
 rand = "0.9.0"
 
-
 [features]
-full = ["automata", "sampling", "automata"]
-regex = []
-automata = ["dep:dot", "regex"]
+regex = ["dep:smallvec", "dep:itertools"]
+automata = ["dep:dot", "dep:bit-set", "dep:indexmap", "regex"]
 sampling = ["dep:rand"]
+full = ["automata", "sampling", "automata"]
