@@ -540,9 +540,12 @@ impl Alphabet {
             if last < r.start {
                 result.insert(CharRange::new(last, r.start.saturating_prev()));
             }
-            last = r.end.saturating_next();
+            last = match r.end.next() {
+                Some(s) => s,
+                None => return result, // We have reached the end of the SMT-LIB alphabet
+            }
         }
-        if last < SmtChar::MAX {
+        if last <= SmtChar::MAX {
             result.insert(CharRange::new(last, SmtChar::MAX));
         }
         result
@@ -992,9 +995,19 @@ mod tests {
     }
 
     #[quickcheck]
-    fn alphabet_union_comp_self(a: Alphabet) -> bool {
+    fn alphabet_union_comp_self(a: Alphabet) {
         let u = a.union(&a.complement());
-        u == Alphabet::full()
+        assert_eq!(u, Alphabet::full());
+    }
+
+    #[test]
+    fn alphabet_union_comp_self_but_last() {
+        let range = CharRange::new(0, SmtChar::MAX.saturating_prev());
+        let mut a = Alphabet::default();
+        a.insert(range);
+        let comp = a.complement();
+        let u = a.union(&comp);
+        assert_eq!(u, Alphabet::full());
     }
 
     #[quickcheck]
