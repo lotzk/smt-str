@@ -445,19 +445,33 @@ impl SmtString {
     /// ```
     /// use smtlib_str::{SmtString};
     /// let s: SmtString = "foobar".into();
-    /// assert!(s.contains(SmtString::empty()));
-    /// assert!(s.contains(SmtString::from("foo")));
-    /// assert!(s.contains(SmtString::from("bar")));
-    /// assert!(s.contains(SmtString::from("oba")));
-    /// assert!(!s.contains(SmtString::from("baz")));
+    /// assert!(s.contains(&SmtString::empty()));
+    /// assert!(s.contains(&SmtString::from("foo")));
+    /// assert!(s.contains(&SmtString::from("bar")));
+    /// assert!(s.contains(&SmtString::from("oba")));
+    /// assert!(!s.contains(&SmtString::from("baz")));
     /// ```
     pub fn contains(&self, factor: &SmtString) -> bool {
-        for i in 0..self.len() {
-            if self.drop(i).starts_with(&factor) {
-                return true;
-            }
-        }
-        false
+        self.index_of(factor, 0).is_some()
+    }
+
+    /// Find the index of the first occurrence of a factor in the suffix of this string starting at `start`.
+    /// Returns `None` if the factor is not found.
+    /// The empty string is a factor of every string and will always return `Some(0)`.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString};
+    /// let s: SmtString = "foobar".into();
+    /// assert_eq!(s.index_of(&SmtString::empty(),0), Some(0));
+    /// assert_eq!(s.index_of(&SmtString::from("foo"),0), Some(0));
+    /// assert_eq!(s.index_of(&SmtString::from("foo"),1), None);
+    /// assert_eq!(s.index_of(&SmtString::from("bar"),0), Some(3));
+    /// assert_eq!(s.index_of(&SmtString::from("oba"),0), Some(2));
+    /// assert_eq!(s.index_of(&SmtString::from("baz"),0), None);
+    /// ```
+    pub fn index_of(&self, factor: &SmtString, start: usize) -> Option<usize> {
+        (start..self.len()).find(|&i| self.drop(i).starts_with(factor))
     }
 
     /// Returns whether this string starts with a prefix.
@@ -591,6 +605,61 @@ impl SmtString {
             result.extend(self.0.iter().copied());
         }
         SmtString(result)
+    }
+
+    /// Replaces the first occurrence of `from` in this string with `to`.
+    /// If `from` is not found in this string, the string is returned unchanged.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString};
+    /// let s: SmtString = "barbar".into();
+    /// let from: SmtString = "bar".into();
+    /// let to: SmtString = "foo".into();
+    /// assert_eq!(s.replace(&from, &to), SmtString::from("foobar"));
+    /// ```
+    pub fn replace(&self, from: &SmtString, to: &SmtString) -> SmtString {
+        let mut result = SmtString::empty();
+        if let Some(j) = self.index_of(from, 0) {
+            result.append(&self.take(j));
+            result.append(to);
+            let i = j + from.len();
+            result.append(&self.drop(i));
+        } else {
+            result = self.clone();
+        }
+        result
+    }
+
+    /// Replaces all occurrences of `from` in this string with `to`.
+    /// If `from` is not found in this string, the string is returned unchanged.
+    /// If `from` is the empty string, the string is returned unchanged.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString};
+    /// let s: SmtString = "barbar".into();
+    /// let from: SmtString = "bar".into();
+    /// let to: SmtString = "foo".into();
+    /// assert_eq!(s.replace_all(&from, &to), SmtString::from("foofoo"));
+    /// ```
+    pub fn replace_all(&self, from: &SmtString, to: &SmtString) -> SmtString {
+        if from.is_empty() || self.is_empty() {
+            return self.clone(); // No changes needed if `from` is empty or `self` is empty
+        }
+
+        let mut result = SmtString::empty();
+        let mut current = self.clone();
+
+        while let Some(j) = current.index_of(from, 0) {
+            result.append(&current.take(j));
+            result.append(to);
+            let i = j + from.len();
+            current = current.drop(i);
+        }
+
+        result.append(&current);
+        result
     }
 
     /// Returns an iterator over the characters of this string.
@@ -882,5 +951,141 @@ mod tests {
         let s1 = s.to_string();
         let s2 = SmtString::parse(&s1).unwrap();
         assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn test_replace_at_start() {
+        let s: SmtString = "foobar".into();
+        let from: SmtString = "foo".into();
+        let to: SmtString = "bar".into();
+        assert_eq!(s.replace(&from, &to), "barbar".into());
+    }
+
+    #[test]
+    fn test_replace_at_end() {
+        let s: SmtString = "foobar".into();
+        let from: SmtString = "bar".into();
+        let to: SmtString = "foo".into();
+        assert_eq!(s.replace(&from, &to), "foofoo".into());
+    }
+
+    #[test]
+    fn test_replace_no_match() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "xyz".into();
+        let to: SmtString = "123".into();
+        assert_eq!(s.replace(&from, &to), s);
+    }
+
+    #[test]
+    fn test_replace_empty_from() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "".into();
+        let to: SmtString = "XYZ".into();
+        assert_eq!(s.replace(&from, &to), "XYZabcdef".into()); // Empty string is inserted at the beginning
+    }
+
+    #[test]
+    fn test_replace_empty_to() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "cd".into();
+        let to: SmtString = "".into();
+        assert_eq!(s.replace(&from, &to), "abef".into()); // `cd` is removed
+    }
+
+    #[test]
+    fn test_replace_full_string() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "abcdef".into();
+        let to: SmtString = "xyz".into();
+        assert_eq!(s.replace(&from, &to), "xyz".into());
+    }
+
+    #[test]
+    fn test_replace_repeated_pattern() {
+        let s: SmtString = "abcabcabc".into();
+        let from: SmtString = "abc".into();
+        let to: SmtString = "x".into();
+        assert_eq!(s.replace(&from, &to), "xabcabc".into()); // Only first occurrence is replaced
+    }
+
+    #[test]
+    fn test_replace_single_character() {
+        let s: SmtString = "banana".into();
+        let from: SmtString = "a".into();
+        let to: SmtString = "o".into();
+        assert_eq!(s.replace(&from, &to), "bonana".into()); // Only first 'a' is replaced
+    }
+
+    #[test]
+    fn test_replace_all_basic() {
+        let s: SmtString = "foobarbar".into();
+        let from: SmtString = "bar".into();
+        let to: SmtString = "foo".into();
+        assert_eq!(s.replace_all(&from, &to), "foofoofoo".into());
+    }
+
+    #[test]
+    fn test_replace_all_complete() {
+        let s: SmtString = "abcabcabc".into();
+        let from: SmtString = "abc".into();
+        let to: SmtString = "xyz".into();
+        assert_eq!(s.replace_all(&from, &to), "xyzxyzxyz".into());
+    }
+
+    #[test]
+    fn test_replace_all_no_match() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "xyz".into();
+        let to: SmtString = "123".into();
+        assert_eq!(s.replace_all(&from, &to), "abcdef".into());
+    }
+
+    #[test]
+    fn test_replace_all_empty_from() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "".into();
+        let to: SmtString = "XYZ".into();
+        assert_eq!(s.replace_all(&from, &to), s); // No-op
+    }
+
+    #[test]
+    fn test_replace_all_empty_to() {
+        let s: SmtString = "banana".into();
+        let from: SmtString = "a".into();
+        let to: SmtString = "".into();
+        assert_eq!(s.replace_all(&from, &to), "bnn".into()); // All 'a's are removed
+    }
+
+    #[test]
+    fn test_replace_all_full_string() {
+        let s: SmtString = "abcdef".into();
+        let from: SmtString = "abcdef".into();
+        let to: SmtString = "xyz".into();
+        assert_eq!(s.replace_all(&from, &to), "xyz".into());
+    }
+
+    #[test]
+    fn test_replace_all_overlapping_occurrences() {
+        let s: SmtString = "aaaa".into();
+        let from: SmtString = "aa".into();
+        let to: SmtString = "b".into();
+        assert_eq!(s.replace_all(&from, &to), "bb".into()); // "aa" -> "b", then another "aa" -> "b"
+    }
+
+    #[test]
+    fn test_replace_all_overlapping_occurrences_2() {
+        let s: SmtString = "aaa".into();
+        let from: SmtString = "aa".into();
+        let to: SmtString = "b".into();
+        assert_eq!(s.replace_all(&from, &to), "ba".into()); // "aa" -> "b", then another "aa" -> "b"
+    }
+
+    #[test]
+    fn test_replace_all_overlapping_occurrences_3() {
+        let s: SmtString = "aaa".into();
+        let from: SmtString = "aa".into();
+        let to: SmtString = "aaa".into();
+        assert_eq!(s.replace_all(&from, &to), "aaaa".into());
     }
 }
