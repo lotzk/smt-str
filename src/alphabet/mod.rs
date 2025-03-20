@@ -559,6 +559,26 @@ impl Alphabet {
     }
 }
 
+impl FromIterator<CharRange> for Alphabet {
+    fn from_iter<T: IntoIterator<Item = CharRange>>(iter: T) -> Self {
+        let mut alphabet = Alphabet::default();
+        for r in iter {
+            alphabet.insert(r);
+        }
+        alphabet
+    }
+}
+
+impl FromIterator<SmtChar> for Alphabet {
+    fn from_iter<T: IntoIterator<Item = SmtChar>>(iter: T) -> Self {
+        let mut alphabet = Alphabet::default();
+        for c in iter {
+            alphabet.insert_char(c);
+        }
+        alphabet
+    }
+}
+
 impl Display for CharRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_empty() {
