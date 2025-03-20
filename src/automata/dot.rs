@@ -1,6 +1,8 @@
-use super::{Automaton, State, StateId, Transition, TransitionType};
+//! Facilities to generate a DOT representation of an NFA.
 
-impl<'a, S: State> dot::Labeller<'a, StateId, (StateId, Transition, StateId)> for Automaton<S> {
+use super::{StateId, Transition, TransitionType, NFA};
+
+impl<'a> dot::Labeller<'a, StateId, (StateId, Transition, StateId)> for NFA {
     fn graph_id(&'a self) -> dot::Id<'a> {
         dot::Id::new("automaton").unwrap()
     }
@@ -29,7 +31,7 @@ impl<'a, S: State> dot::Labeller<'a, StateId, (StateId, Transition, StateId)> fo
     }
 
     fn edge_label(&'a self, e: &(StateId, Transition, StateId)) -> dot::LabelText<'a> {
-        match &e.1.type_ {
+        match e.1.get_type() {
             TransitionType::Range(r) => dot::LabelText::LabelStr(format!("{}", r).into()),
             TransitionType::NotRange(r) => dot::LabelText::LabelStr(format!("not({})", r).into()),
             TransitionType::Epsilon => dot::LabelText::LabelStr("".into()),
@@ -49,7 +51,7 @@ impl<'a, S: State> dot::Labeller<'a, StateId, (StateId, Transition, StateId)> fo
     }
 }
 
-impl<'a, S: State> dot::GraphWalk<'a, StateId, (StateId, Transition, StateId)> for Automaton<S> {
+impl<'a> dot::GraphWalk<'a, StateId, (StateId, Transition, StateId)> for NFA {
     fn nodes(&'a self) -> dot::Nodes<'a, StateId> {
         self.states
             .iter()
@@ -62,7 +64,7 @@ impl<'a, S: State> dot::GraphWalk<'a, StateId, (StateId, Transition, StateId)> f
     fn edges(&'a self) -> dot::Edges<'a, (StateId, Transition, StateId)> {
         let mut edges: Vec<(StateId, Transition, StateId)> = vec![];
         for (i, state) in self.states.iter().enumerate() {
-            for transition in state.transitions().iter() {
+            for transition in state.transitions() {
                 edges.push((i, transition.clone(), transition.get_dest()));
             }
         }

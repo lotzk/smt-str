@@ -1,29 +1,46 @@
+//! Determinization of non-deterministic finite automata.
+//! An automatons is deterministic if for each state and each character in the alphabet there is at most one transition.
+
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{HashMap, VecDeque},
     fmt::Display,
 };
 
+use bit_set::BitSet;
+use indexmap::IndexMap;
+
 use crate::alphabet::AlphabetPartitionMap;
 
-use super::{Automaton, AutomatonError, State, StateId, Transition, TransitionType, DFA, NFA};
+use super::{StateId, TransitionType, NFA};
 
+/// A set of states. Each set of states corresponds to a single state in the determinized automaton.
+/// The set is implemented as a BTreeSet of state IDs contained in the set.
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct StateSet(BTreeSet<StateId>);
+struct StateSet(BitSet<StateId>);
 impl StateSet {
+    /// Creates a new empty state set.
     fn new() -> Self {
-        Self(BTreeSet::new())
+        Self(BitSet::default())
     }
 
+    /// Inserts a state into the set.
     fn insert(&mut self, state: StateId) {
         self.0.insert(state);
     }
 
-    fn iter(&self) -> impl Iterator<Item = &StateId> {
+    /// Returns an iterator over the state IDs in the set.
+    fn iter(&self) -> impl Iterator<Item = StateId> + '_ {
         self.0.iter()
     }
 
+    /// Returns true if the set is empty.
     fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Extends the set with the elements of another set.
+    fn extend(&mut self, other: &StateSet) {
+        self.0.union_with(&other.0);
     }
 }
 
@@ -50,136 +67,229 @@ impl Display for StateSet {
     }
 }
 
-/// Creates the deterministic automaton corresponding to this automaton, i.e., a deterministic automaton that accepts the same language as this automaton.
+/// Determinizes an NFA.
+/// The result is an automaton recognizing the same language as the input NFA.
+/// Returns an NFA struct that describes the deterministic finite automaton.
 ///
-/// # Errors
-///
-/// This function will return an error if the given automaton contains an epsilon transition.
-pub fn determinize(nfa: &NFA) -> Result<DFA, AutomatonError> {
-    let mut dfa: DFA = Automaton::new();
+/// The function uses the subset construction algorithm to determinize the NFA.
+/// As a result, the number of states in the resulting automaton can be exponential in the number of states of the input NFA.
+pub fn determinize(nfa: &NFA) -> NFA {
+    let mut det = NFA::new();
     // Maps a set of NFA states to a DFA state
-    let mut state_map: HashMap<StateSet, StateId> = HashMap::new();
+    let mut state_map: IndexMap<StateSet, StateId> = IndexMap::new();
+    // The queue of states to process
     let mut queue: VecDeque<StateSet> = VecDeque::new();
 
-    // Closure of the initial NFA state
-    if let Some(initial_state) = nfa.initial {
-        let mut initial_closure = StateSet::new();
-        initial_closure.insert(initial_state);
-        // Initial DFA state
-        let dfa_initial_state = dfa.new_state();
-        dfa.initial = Some(dfa_initial_state);
-        if nfa.finals.contains(&initial_state) {
-            dfa.finals.insert(dfa_initial_state);
+    let mut epsilon_cache: HashMap<StateId, StateSet> = HashMap::new(); // Cache epsilon closures
+
+    // Compute epsilon closures for all states
+    for q in nfa.states() {
+        let mut closure = StateSet::new();
+        // Safe to unwrap because q is guaranteed to be a valid state ID
+        for p in nfa.epsilon_closure(q).unwrap() {
+            closure.insert(p);
         }
-        state_map.insert(initial_closure.clone(), dfa_initial_state);
-        queue.push_back(initial_closure);
+        epsilon_cache.insert(q, closure);
     }
 
-    while let Some(nfa_states) = queue.pop_front() {
-        let &dfa_state_id = state_map.get(&nfa_states).unwrap();
+    // Compute the closure of the initial NFA state
+    if let Some(q0) = nfa.initial() {
+        let initial_set = epsilon_cache.get(&q0).unwrap().clone();
+        let q0_dfa = det.new_state();
+        det.set_initial(q0_dfa).unwrap();
+        if initial_set.iter().any(|q| nfa.is_final(q)) {
+            det.add_final(q0_dfa).unwrap();
+        }
+        state_map.insert(initial_set.clone(), q0_dfa);
+        queue.push_back(initial_set);
+    }
 
-        // Collect transitions for each symbol by partitioning the transitions of the NFA states from the current DFA state
-        // based on the char-ranges of the transitions
-        // After that, `trans_partitioning` contains a key for each range of the alphabet that is covered by a transition and no two ranges overlap.
-        let mut trans_partitioning = AlphabetPartitionMap::default();
-        for &nfa_state_id in nfa_states.iter() {
-            let nfa_state = nfa.get_state(nfa_state_id)?;
-            for transition in nfa_state.transitions() {
-                let rnges = match transition.get_type() {
-                    TransitionType::Range(rn) => vec![*rn],
-                    TransitionType::NotRange(rn) => rn.complement(),
-                    _ => {
-                        return Err(AutomatonError::RequiresEpsilonFree(
-                            "Determinization".to_owned(),
-                        ))
-                    }
-                };
-                let dest = transition.get_dest();
-                for rn in rnges {
-                    // Refine the partitioning.
-                    // If this range overlaps with a range that is already in the partitioning, the partitioning is refined by adding the destination state to the set of the intersecting range.
-                    trans_partitioning =
-                        trans_partitioning.refine_single(rn, dest.into(), |ldest: &StateSet, _| {
-                            // both ranges overlap, so add the destination state to the set of the intersecting range
-                            let mut states: StateSet = ldest.clone();
-                            states.insert(dest);
-                            states
-                        });
+    // Process the states in the queue
+    while let Some(nfa_states) = queue.pop_front() {
+        let dfa_state = *state_map.get(&nfa_states).unwrap();
+
+        let trans_partitioning = partition_transitions(&nfa_states, nfa);
+
+        // Now each partition in `trans_partitioning` corresponds to a transition in the DFA.
+        for (range, nfa_states) in trans_partitioning
+            .into_iter()
+            .filter(|(r, s)| !r.is_empty() && !s.is_empty())
+        {
+            // Compute the epsilon closure of the destination set using the precomputed cache
+            let mut nfa_states_closure = StateSet::new();
+            for q in nfa_states.iter() {
+                if let Some(closure) = epsilon_cache.get(&q) {
+                    nfa_states_closure.extend(closure);
                 }
             }
-        }
-
-        for (range, nfa_states) in trans_partitioning.iter() {
-            //in trans_partition {
-            // Get the DFA state corresponding to the destination NFA states
-            if !nfa_states.is_empty() {
-                let dfa_dest_state_id = if let Some(&state_id) = state_map.get(nfa_states) {
-                    state_id
-                } else {
-                    let new_dfa_state = dfa.new_state();
-                    if nfa_states.iter().any(|&s| nfa.finals.contains(&s)) {
-                        dfa.finals.insert(new_dfa_state);
+            let dest = *state_map
+                .entry(nfa_states_closure.clone())
+                .or_insert_with(|| {
+                    let new_state = det.new_state();
+                    if nfa_states_closure.iter().any(|q| nfa.is_final(q)) {
+                        det.add_final(new_state).unwrap();
                     }
-                    state_map.insert(nfa_states.clone(), new_dfa_state);
-                    queue.push_back(nfa_states.clone());
-                    new_dfa_state
-                };
-                // Add a transition from the current DFA state to the destination DFA state for all ranges in the alphabet
-                dfa.get_state_mut(dfa_state_id)?
-                    .add_transition(Transition::range(*range, dfa_dest_state_id));
+                    queue.push_back(nfa_states_closure.clone());
+                    new_state
+                });
+            det.add_transition(dfa_state, dest, TransitionType::Range(range))
+                .unwrap();
+        }
+    }
+    det
+}
+
+/// Collect transitions for each symbol by partitioning the transitions of the NFA states from the state set on the char-ranges of the transitions
+/// Returns a partitioning map that contains a key for each range of the alphabet that is covered by a transition and no two ranges overlap.
+fn partition_transitions(states: &StateSet, nfa: &NFA) -> AlphabetPartitionMap<StateSet> {
+    let mut trans_partitioning: AlphabetPartitionMap<StateSet> = AlphabetPartitionMap::default();
+    for q in states.iter() {
+        for transition in nfa.transitions_from(q).unwrap() {
+            let ranges = match transition.get_type() {
+                TransitionType::Range(r) => vec![*r],
+                TransitionType::NotRange(nr) => nr.complement(),
+                TransitionType::Epsilon => continue,
+            };
+            let p = transition.get_dest();
+            for range in ranges {
+                trans_partitioning =
+                    trans_partitioning.refine_single(range, p.into(), |ldest: &StateSet, _| {
+                        let mut new_set = ldest.clone();
+                        new_set.insert(p);
+                        new_set
+                    });
             }
         }
     }
-
-    Ok(dfa)
+    trans_partitioning
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::alphabet::CharRange;
 
     use super::*;
 
     #[test]
-    fn test_determinize_deterministic() {
-        // s0 --a--> s1 --b--> s2
-        let mut nfa: NFA = Automaton::new();
-        let s0 = nfa.new_state();
-        let s1 = nfa.new_state();
-        let s2 = nfa.new_state();
+    fn test_determinize_empty_nfa() {
+        let nfa = NFA::new(); // Empty NFA with no states
+        let dfa = determinize(&nfa);
 
-        nfa.initial = Some(s0);
-        nfa.finals.insert(s2);
+        assert!(dfa.states().next().is_none());
+    }
 
-        nfa.get_state_mut(s0)
-            .unwrap()
-            .add_transition(Transition::char('a', s1));
-        nfa.get_state_mut(s1)
-            .unwrap()
-            .add_transition(Transition::char('b', s2));
+    #[test]
+    fn test_determinize_single_state_nfa() {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q0).unwrap(); // The initial state is also final
 
-        let dfa = determinize(&nfa).unwrap();
+        let dfa = determinize(&nfa);
+        assert!(dfa.is_det());
 
-        assert_eq!(dfa.states.len(), 3);
-        assert!(dfa.initial.is_some());
-        assert_eq!(dfa.finals.len(), 1);
+        assert!(dfa.accepts(&"".into())); // DFA should accept the empty string
+        assert!(!dfa.accepts(&"a".into()));
+    }
 
-        let initial_state = dfa.initial.unwrap();
-        let final_state = *dfa.finals.iter().next().unwrap();
+    #[test]
+    fn test_determinize_nfa_with_epsilon() {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        let q1 = nfa.new_state();
 
-        assert!(dfa.get_state(initial_state).is_ok());
-        assert!(dfa.get_state(final_state).is_ok());
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q1).unwrap();
 
-        let initial_transitions = dfa.get_state(initial_state).unwrap().transitions();
-        assert_eq!(initial_transitions.len(), 1);
-        assert_eq!(
-            *initial_transitions[0].get_type(),
-            TransitionType::char('a')
-        );
+        nfa.add_transition(q0, q1, TransitionType::Epsilon).unwrap();
 
-        let middle_state_id = initial_transitions[0].get_dest();
-        let middle_transitions = dfa.get_state(middle_state_id).unwrap().transitions();
-        assert_eq!(middle_transitions.len(), 1);
-        assert_eq!(*middle_transitions[0].get_type(), TransitionType::char('b'));
-        assert_eq!(middle_transitions[0].get_dest(), final_state);
+        let dfa = determinize(&nfa);
+        assert!(dfa.is_det());
+
+        assert!(dfa.accepts(&"".into()));
+        assert!(!dfa.accepts(&"a".into()));
+    }
+
+    #[test]
+    fn test_determinize_basic_nfa() {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        let q1 = nfa.new_state();
+        let q2 = nfa.new_state();
+
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q2).unwrap();
+
+        nfa.add_transition(q0, q1, TransitionType::Range(CharRange::singleton('a')))
+            .unwrap();
+        nfa.add_transition(q1, q2, TransitionType::Range(CharRange::singleton('b')))
+            .unwrap();
+
+        let dfa = determinize(&nfa);
+        assert!(dfa.is_det());
+
+        assert!(dfa.accepts(&"ab".into()));
+        assert!(!dfa.accepts(&"a".into()));
+        assert!(!dfa.accepts(&"b".into()));
+        assert!(!dfa.accepts(&"ba".into()));
+    }
+
+    #[test]
+    fn test_determinize_nfa_with_multiple_paths() {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        let q1 = nfa.new_state();
+        let q2 = nfa.new_state();
+        let q3 = nfa.new_state();
+
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q3).unwrap();
+
+        nfa.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'a')))
+            .unwrap();
+        nfa.add_transition(q0, q2, TransitionType::Range(CharRange::new('a', 'a')))
+            .unwrap();
+        nfa.add_transition(q1, q3, TransitionType::Range(CharRange::new('b', 'b')))
+            .unwrap();
+        nfa.add_transition(q2, q3, TransitionType::Range(CharRange::new('c', 'c')))
+            .unwrap();
+
+        let dfa = determinize(&nfa);
+        assert!(dfa.is_det());
+
+        assert!(dfa.accepts(&"ab".into()));
+        assert!(dfa.accepts(&"ac".into()));
+        assert!(!dfa.accepts(&"a".into()));
+        assert!(!dfa.accepts(&"bc".into()));
+    }
+
+    #[test]
+    fn test_determinize_nfa_with_overlapping_ranges() {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        let q1 = nfa.new_state();
+        let q2 = nfa.new_state();
+
+        // -> q0 --[a-c]--> q1*
+        //       --[b-d]--> q2*
+
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q1).unwrap();
+        nfa.add_final(q2).unwrap();
+
+        nfa.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'c')))
+            .unwrap();
+        nfa.add_transition(q0, q2, TransitionType::Range(CharRange::new('b', 'd')))
+            .unwrap();
+
+        let dfa = determinize(&nfa);
+        assert_eq!(dfa.num_states(), 4);
+        assert!(dfa.is_det());
+
+        assert!(dfa.accepts(&"a".into()));
+        assert!(dfa.accepts(&"b".into()));
+        assert!(dfa.accepts(&"c".into()));
+        assert!(dfa.accepts(&"d".into()));
+        assert!(!dfa.accepts(&"e".into()));
     }
 }

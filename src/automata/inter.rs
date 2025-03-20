@@ -1,235 +1,346 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+//! Computation of the intersection of two NFAs.
+//! The intersection of two NFAs is an NFA that accepts the intersection of the languages accepted by the two NFAs.
+//! The intersection is computed by constructing a product automaton.
+//! The product automaton has a state for each pair of states from the two input automata.
+//! The transitions are constructed by taking the cartesian product of the transitions of the two input automata.
 
-use super::{Automaton, AutomatonError, State, StateId, Transition, TransitionType};
+use std::collections::VecDeque;
 
-/// Calculates the intersection of this automaton with another automaton and returns the result.
-/// Use the product construction to calculate the intersection of two automatons.
-/// Both automatons must be epsilon-free. Returns an error if any of the automatons contains epsilon transitions.
-pub fn intersect<S: State>(
-    a1: &Automaton<S>,
-    a2: &Automaton<S>,
-) -> Result<Automaton<S>, AutomatonError> {
-    // The product automaton
-    let mut aut = Automaton::new();
+use indexmap::IndexMap;
 
-    // The states of the product automaton.
-    // Each key is a pair of states from the two automatons, and the value is the corresponding state in the product automaton.
-    let mut state_pairs: HashMap<(StateId, StateId), StateId> = HashMap::new();
+use super::{StateId, Transition, TransitionType, NFA};
 
-    // Do a breadth-first search on the product of the two automata, starting from the initial states of both automata
+/// Computes the intersection of two NFAs.
+/// The intersection of two NFAs is an NFA that accepts the intersection of the languages accepted by the two NFAs.
+/// The intersection is computed by constructing a product automaton, which has at most |N| * |M| states, where N and M are the number of states of the input automata.
+pub fn intersect(n: &NFA, m: &NFA) -> NFA {
+    let mut result = NFA::new();
+    // the result will be trim.
+    result.trim = true;
+    // Maps pairs of states from the input automata to the corresponding state in the result automaton.
+    let mut state_map = IndexMap::new();
+    // Queue of pairs of states from the input automata that need to be processed.
     let mut queue = VecDeque::new();
 
-    if let (Some(q01), Some(q02)) = (a1.initial, a2.initial) {
-        let initial = aut.add_state(S::default());
-        state_pairs.insert((q01, q02), initial);
-        aut.initial = Some(initial);
-        queue.push_back((q01, q02));
+    // Add the initial state of the product automaton.
+    if let Some((n_start, m_start)) = n.initial().zip(m.initial()) {
+        let start = result.new_state();
+        result.set_initial(start).unwrap(); // this cannot be an error, as the automaton is empty
+        state_map.insert((n_start, m_start), start);
+        queue.push_back((n_start, m_start));
     }
 
-    // Invariant: The new state must have been created before, when the pair of states was added to the queue
-    while let Some((s1id, s2id)) = queue.pop_front() {
-        let s1 = a1.get_state(s1id)?;
-        let s2 = a2.get_state(s2id)?;
-
-        // Fetch the new state represented by the pair of states in the argument automata. This entry must exist, as it was created when the pair of states was added to the queue, so it is safe to unwrap here.
-        let &new_state = state_pairs.get(&(s1id, s2id)).unwrap();
-
-        // If both states are final states, the new state is a final state of the product automaton
-        if a1.finals.contains(&s1id) && a2.finals.contains(&s2id) {
-            aut.finals.insert(new_state);
+    // Process the queue.
+    while let Some((n_state, m_state)) = queue.pop_front() {
+        // Add the transitions from the product state to the product states that correspond to the transitions of the input automata.
+        let mapped_state = *state_map.get(&(n_state, m_state)).unwrap();
+        // If both states are final, the product state is final.
+        if n.is_final(n_state) && m.is_final(m_state) {
+            result.add_final(mapped_state).unwrap();
         }
-        // Find all transitions from the product state
-        for t1 in s1.transitions().iter() {
-            for t2 in s2.transitions().iter() {
-                let ranges_left = match t1.get_type() {
-                    TransitionType::Range(r) => vec![*r],
-                    TransitionType::NotRange(r) => r.complement(),
-                    _ => {
-                        return Err(AutomatonError::RequiresEpsilonFree(
-                            "Intersection".to_string(),
-                        ))
-                    }
-                };
-                let ranges_right = match t2.get_type() {
-                    TransitionType::Range(r) => vec![*r],
-                    TransitionType::NotRange(r) => r.complement(),
-                    _ => {
-                        return Err(AutomatonError::RequiresEpsilonFree(
-                            "Intersection".to_string(),
-                        ))
-                    }
-                };
-                let mut intersections =
-                    HashSet::with_capacity(ranges_left.len() * ranges_right.len());
-                for r1 in ranges_left.iter() {
-                    for r2 in ranges_right.iter() {
-                        let inter = r1.intersect(r2);
-                        if !inter.is_empty() {
-                            intersections.insert(inter);
-                        }
-                    }
-                }
-                for inter in intersections {
-                    // Add the intersection to the product automaton
-                    let dest_pair = (t1.get_dest(), t2.get_dest());
-                    let new_dest = match state_pairs.get(&dest_pair) {
-                        Some(id) => *id,
-                        None => {
-                            // Create a new state for the pair of states
-                            let new_id = aut.add_state(S::default());
-                            state_pairs.insert(dest_pair, new_id);
-                            // Enqueue the new pair of states to be processed
-                            queue.push_back(dest_pair);
-                            new_id
-                        }
-                    };
-                    // Add the transition to the product automaton
-                    aut.get_state_mut(new_state)?
-                        .add_transition(Transition::range(inter, new_dest));
+        for t1 in n.transitions_from(n_state).unwrap() {
+            for t2 in m.transitions_from(m_state).unwrap() {
+                let intersections = intersect_transitions(n_state, t1, m_state, t2);
+                for (label, (p1, p2)) in intersections {
+                    let new_dest = state_map.entry((p1, p2)).or_insert_with(|| {
+                        let new_state = result.new_state();
+                        queue.push_back((p1, p2));
+                        new_state
+                    });
+                    result
+                        .add_transition(mapped_state, *new_dest, label)
+                        .unwrap();
                 }
             }
         }
     }
+    result
+}
 
-    Ok(aut)
+/// Intersects the two transitions
+///
+/// - q1: the source state of the first transition
+/// - t1: the first transition leaving the source state q1
+/// - q2: the source state of the second transition
+/// - t2: the second transition leaving the source state q2
+///
+/// Return pairs of the type of the intersection and the destination states, given as pairs of state ids in the input automata.
+fn intersect_transitions(
+    q1: StateId,
+    t1: &Transition,
+    q2: StateId,
+    t2: &Transition,
+) -> Vec<(TransitionType, (StateId, StateId))> {
+    let type1 = t1.label;
+    let type2 = t2.label;
+    let p1 = t1.destination;
+    let p2 = t2.destination;
+
+    let mut res = Vec::new();
+
+    match (type1, type2) {
+        (TransitionType::Range(r1), TransitionType::Range(r2)) => {
+            let inter = r1.intersect(&r2);
+            if !inter.is_empty() {
+                res.push((TransitionType::Range(inter), (p1, p2)));
+            }
+        }
+        (TransitionType::Range(r2), TransitionType::NotRange(r))
+        | (TransitionType::NotRange(r), TransitionType::Range(r2)) => {
+            let comp = r.complement();
+            for c in comp {
+                let inter = c.intersect(&r2);
+                if !inter.is_empty() {
+                    res.push((TransitionType::Range(inter), (p1, p2)));
+                }
+            }
+        }
+        (TransitionType::NotRange(r1), TransitionType::NotRange(r2)) => {
+            for r1 in r1.complement() {
+                for r2 in r2.complement() {
+                    let inter = r1.intersect(&r2);
+                    if !inter.is_empty() {
+                        res.push((TransitionType::Range(inter), (p1, p2)));
+                    }
+                }
+            }
+        }
+        (TransitionType::Epsilon, _) => {
+            // We stay in the same state in the second automaton and move to p1 when reading an epsilon.
+            res.push((TransitionType::Epsilon, (p1, q2)));
+        }
+        (_, TransitionType::Epsilon) => {
+            // We stay in the same state in the first automaton and move to p2 when reading an epsilon.
+            res.push((TransitionType::Epsilon, (q1, p2)));
+        }
+    };
+    res
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::{alphabet::CharRange, automata::NFA};
+    use quickcheck_macros::quickcheck;
+
+    use crate::alphabet::CharRange;
 
     use super::*;
 
     #[test]
-    fn test_basic_intersection() {
-        let mut a1: NFA = Automaton::new();
-        let s0_a1 = a1.new_state();
-        let s1_a1 = a1.new_state();
-        a1.initial = Some(s0_a1);
-        a1.finals.insert(s1_a1);
-        a1.get_state_mut(s0_a1)
-            .unwrap()
-            .add_transition(Transition::range_from('a', 'b', s1_a1));
+    fn test_intersect_transitions_disjoint() {
+        let q1 = 0;
+        let q2 = 1;
+        let p1 = 2;
+        let p2 = 3;
+        let t1 = Transition::new(TransitionType::Range(CharRange::new('a', 'c')), p1);
+        let t2 = Transition::new(TransitionType::Range(CharRange::new('d', 'e')), p2);
 
-        let mut a2: NFA = Automaton::new();
-        let s0_a2 = a2.new_state();
-        let s1_a2 = a2.new_state();
-        a2.initial = Some(s0_a2);
-        a2.finals.insert(s1_a2);
-        a2.get_state_mut(s0_a2)
-            .unwrap()
-            .add_transition(Transition::range_from('b', 'c', s1_a2));
-
-        let result = intersect(&a1, &a2).unwrap();
-
-        assert_eq!(result.states.len(), 2);
-        assert!(result.initial.is_some());
-        assert_eq!(result.finals.len(), 1);
-
-        let initial_state = result.initial.unwrap();
-        let final_state = *result.finals.iter().next().unwrap();
-
-        let initial_transitions = &result.get_state(initial_state).unwrap().transitions();
-        assert_eq!(initial_transitions.len(), 1);
-        assert_eq!(
-            *initial_transitions[0].get_type(),
-            TransitionType::char('b',)
-        );
-        assert_eq!(initial_transitions[0].get_dest(), final_state);
+        let res = intersect_transitions(q1, &t1, q2, &t2);
+        assert_eq!(res.len(), 0);
     }
 
     #[test]
-    fn test_no_intersection() {
-        let mut a1: NFA = Automaton::new();
-        let s0_a1 = a1.new_state();
-        let s1_a1 = a1.new_state();
-        a1.initial = Some(s0_a1);
-        a1.finals.insert(s1_a1);
-        a1.get_state_mut(s0_a1)
-            .unwrap()
-            .add_transition(Transition::char('a', s1_a1));
+    fn test_intersect_transitions_overlap() {
+        let q1 = 0;
+        let q2 = 1;
+        let p1 = 2;
+        let p2 = 3;
+        let t1 = Transition::new(TransitionType::Range(CharRange::new('a', 'g')), p1);
+        let t2 = Transition::new(TransitionType::Range(CharRange::new('d', 'k')), p2);
 
-        let mut a2: NFA = Automaton::new();
-        let s0_a2 = a2.new_state();
-        let s1_a2 = a2.new_state();
-        a2.initial = Some(s0_a2);
-        a2.finals.insert(s1_a2);
-        a2.get_state_mut(s0_a2)
-            .unwrap()
-            .add_transition(Transition::char('b', s1_a2));
-
-        let result = intersect(&a1, &a2).unwrap();
-
-        assert_eq!(result.finals.len(), 0);
+        let res = intersect_transitions(q1, &t1, q2, &t2);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].0, TransitionType::Range(CharRange::new('d', 'g')));
     }
 
     #[test]
-    fn test_intersection_with_epsilon_transition() {
-        let mut a1: NFA = Automaton::new();
-        let s0_a1 = a1.new_state();
-        let s1_a1 = a1.new_state();
-        a1.initial = Some(s0_a1);
-        a1.finals.insert(s1_a1);
-        a1.get_state_mut(s0_a1).unwrap().add_transition(Transition {
-            type_: TransitionType::Epsilon,
-            destination: s1_a1,
-        });
+    fn test_intersect_transitions_equal() {
+        let q1 = 0;
+        let q2 = 1;
+        let p1 = 2;
+        let p2 = 3;
+        let t1 = Transition::new(TransitionType::Range(CharRange::new('a', 'g')), p1);
+        let t2 = Transition::new(TransitionType::Range(CharRange::new('a', 'g')), p2);
 
-        let mut a2: NFA = Automaton::new();
-        let s0_a2 = a2.new_state();
-        let s1_a2 = a2.new_state();
-        a2.initial = Some(s0_a2);
-        a2.finals.insert(s1_a2);
-        a2.get_state_mut(s0_a2)
-            .unwrap()
-            .add_transition(Transition::char('a', s1_a2));
+        let res = intersect_transitions(q1, &t1, q2, &t2);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].0, TransitionType::Range(CharRange::new('a', 'g')));
+    }
 
-        let result = intersect(&a1, &a2);
+    #[quickcheck]
+    fn test_intersect_transitions_ranges(r1: CharRange, r2: CharRange) {
+        let q1 = 0;
+        let q2 = 1;
+        let p1 = 2;
+        let p2 = 3;
+        let t1 = Transition::new(TransitionType::Range(r1), p1);
+        let t2 = Transition::new(TransitionType::Range(r2), p2);
 
-        assert!(result.is_err());
-        if let Err(AutomatonError::RequiresEpsilonFree(message)) = result {
-            assert_eq!(message, "Intersection");
+        let res = intersect_transitions(q1, &t1, q2, &t2);
+        if r1.intersect(&r2).is_empty() {
+            assert_eq!(res.len(), 0);
         } else {
-            panic!("Expected RequiresEpsilonFree error");
+            assert_eq!(res.len(), 1);
+            assert_eq!(res[0].0, TransitionType::Range(r1.intersect(&r2)));
+            assert_eq!(res[0].1, (p1, p2));
         }
     }
 
     #[test]
-    fn test_range_intersection() {
-        let mut a1: NFA = Automaton::new();
-        let s0_a1 = a1.new_state();
-        let s1_a1 = a1.new_state();
-        a1.initial = Some(s0_a1);
-        a1.finals.insert(s1_a1);
-        a1.get_state_mut(s0_a1)
-            .unwrap()
-            .add_transition(Transition::range_from('a', 'd', s1_a1));
+    fn test_intersect_transitions_epsilon() {
+        let q1 = 0;
+        let q2 = 1;
+        let p1 = 2;
+        let p2 = 3;
+        let t1 = Transition::new(TransitionType::Epsilon, p1);
+        let t2 = Transition::new(TransitionType::Range(CharRange::new('a', 'z')), p2);
 
-        let mut a2: NFA = Automaton::new();
-        let s0_a2 = a2.new_state();
-        let s1_a2 = a2.new_state();
-        a2.initial = Some(s0_a2);
-        a2.finals.insert(s1_a2);
-        a2.get_state_mut(s0_a2)
-            .unwrap()
-            .add_transition(Transition::range_from('c', 'f', s1_a2));
+        let res = intersect_transitions(q1, &t1, q2, &t2);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].0, TransitionType::Epsilon);
+        assert_eq!(res[0].1, (p1, q2));
+    }
 
-        let result = intersect(&a1, &a2).unwrap();
+    #[test]
+    fn test_intersect_empty() {
+        let a1: NFA = NFA::new();
+        let a2: NFA = NFA::new();
+        let result = intersect(&a1, &a2);
+        assert_eq!(result.states.len(), 0);
+        assert!(result.initial.is_none());
+        assert_eq!(result.finals.len(), 0);
+    }
 
-        assert_eq!(result.states.len(), 2);
-        assert!(result.initial.is_some());
-        assert_eq!(result.finals.len(), 1);
+    #[test]
+    fn test_intersection_simple() {
+        let mut nfa1 = NFA::new();
+        let q0 = nfa1.new_state();
+        let q1 = nfa1.new_state();
+        nfa1.set_initial(q0).unwrap();
+        nfa1.add_final(q1).unwrap();
+        nfa1.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'b')))
+            .unwrap();
 
-        let initial_state = result.initial.unwrap();
-        let final_state = *result.finals.iter().next().unwrap();
+        let mut nfa2 = NFA::new();
+        let p0 = nfa2.new_state();
+        let p1 = nfa2.new_state();
+        nfa2.set_initial(p0).unwrap();
+        nfa2.add_final(p1).unwrap();
+        nfa2.add_transition(p0, p1, TransitionType::Range(CharRange::new('b', 'c')))
+            .unwrap();
 
-        let initial_transitions = &result.get_state(initial_state).unwrap().transitions();
-        assert_eq!(initial_transitions.len(), 1);
-        assert_eq!(
-            *initial_transitions[0].get_type(),
-            TransitionType::Range(CharRange::new('c', 'd'))
-        );
-        assert_eq!(initial_transitions[0].get_dest(), final_state);
+        let result = intersect(&nfa1, &nfa2);
+
+        assert!(result.accepts(&"b".into()));
+        assert!(!result.accepts(&"a".into()));
+        assert!(!result.accepts(&"c".into()));
+    }
+
+    #[test]
+    fn test_intersection_epsilon() {
+        let mut nfa1 = NFA::new();
+        let q0 = nfa1.new_state();
+        let q1 = nfa1.new_state();
+        nfa1.set_initial(q0).unwrap();
+        nfa1.add_final(q1).unwrap();
+        nfa1.add_transition(q0, q1, TransitionType::Epsilon)
+            .unwrap();
+
+        let mut nfa2 = NFA::new();
+        let p0 = nfa2.new_state();
+        let p1 = nfa2.new_state();
+        nfa2.set_initial(p0).unwrap();
+        nfa2.add_final(p1).unwrap();
+        nfa2.add_transition(p0, p1, TransitionType::Range(CharRange::new('a', 'z')))
+            .unwrap();
+
+        let result = intersect(&nfa1, &nfa2);
+
+        assert!(!result.accepts(&"a".into()));
+        assert!(!result.accepts(&"".into()));
+    }
+
+    #[test]
+    fn test_intersection_negated_range() {
+        let mut nfa1 = NFA::new();
+        let q0 = nfa1.new_state();
+        let q1 = nfa1.new_state();
+        nfa1.set_initial(q0).unwrap();
+        nfa1.add_final(q1).unwrap();
+        nfa1.add_transition(q0, q1, TransitionType::NotRange(CharRange::new('a', 'z')))
+            .unwrap();
+
+        let mut nfa2 = NFA::new();
+        let p0 = nfa2.new_state();
+        let p1 = nfa2.new_state();
+        nfa2.set_initial(p0).unwrap();
+        nfa2.add_final(p1).unwrap();
+        nfa2.add_transition(p0, p1, TransitionType::Range(CharRange::new('0', '9')))
+            .unwrap();
+
+        let result = intersect(&nfa1, &nfa2);
+
+        assert!(result.accepts(&"0".into()));
+        assert!(result.accepts(&"9".into()));
+        assert!(!result.accepts(&"a".into()));
+        assert!(!result.accepts(&"z".into()));
+    }
+
+    #[test]
+    fn test_intersection_disjoint() {
+        let mut nfa1 = NFA::new();
+        let q0 = nfa1.new_state();
+        let q1 = nfa1.new_state();
+        nfa1.set_initial(q0).unwrap();
+        nfa1.add_final(q1).unwrap();
+        nfa1.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'b')))
+            .unwrap();
+
+        let mut nfa2 = NFA::new();
+        let p0 = nfa2.new_state();
+        let p1 = nfa2.new_state();
+        nfa2.set_initial(p0).unwrap();
+        nfa2.add_final(p1).unwrap();
+        nfa2.add_transition(p0, p1, TransitionType::Range(CharRange::new('c', 'd')))
+            .unwrap();
+
+        let result = intersect(&nfa1, &nfa2);
+
+        assert!(!result.accepts(&"a".into()));
+        assert!(!result.accepts(&"b".into()));
+        assert!(!result.accepts(&"c".into()));
+        assert!(!result.accepts(&"d".into()));
+    }
+
+    #[test]
+    fn test_intersection_multiple_steps() {
+        let mut nfa1 = NFA::new();
+        let q0 = nfa1.new_state();
+        let q1 = nfa1.new_state();
+        let q2 = nfa1.new_state();
+        nfa1.set_initial(q0).unwrap();
+        nfa1.add_final(q2).unwrap();
+        nfa1.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'a')))
+            .unwrap();
+        nfa1.add_transition(q1, q2, TransitionType::Range(CharRange::new('b', 'b')))
+            .unwrap();
+
+        let mut nfa2 = NFA::new();
+        let p0 = nfa2.new_state();
+        let p1 = nfa2.new_state();
+        let p2 = nfa2.new_state();
+        nfa2.set_initial(p0).unwrap();
+        nfa2.add_final(p2).unwrap();
+        nfa2.add_transition(p0, p1, TransitionType::Range(CharRange::new('a', 'a')))
+            .unwrap();
+        nfa2.add_transition(p1, p2, TransitionType::Range(CharRange::new('b', 'b')))
+            .unwrap();
+
+        let result = intersect(&nfa1, &nfa2);
+
+        assert!(result.accepts(&"ab".into()));
+        assert!(!result.accepts(&"a".into()));
+        assert!(!result.accepts(&"b".into()));
+        assert!(!result.accepts(&"ba".into()));
     }
 }
