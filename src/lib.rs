@@ -48,6 +48,19 @@ impl SmtChar {
         std::char::from_u32(self.0).unwrap()
     }
 
+    /// Get the `u32` representation of this `SmtChar`.
+    /// The `u32` is the unicode code point of this `SmtChar`.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::SmtChar;
+    /// assert_eq!(SmtChar::new('a').as_u32(), 97);
+    /// assert_eq!(SmtChar::new('🦀').as_u32(), 129408);
+    /// ```
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+
     /// Returns the next `SmtChar` in the range 0x0000 to 0x2FFFF.
     /// Returns `None` if this `SmtChar` is the maximum `SmtChar`.
     ///
@@ -341,6 +354,20 @@ impl SmtString {
         self.0.len()
     }
 
+    /// Empties this string, removing all characters.
+    /// After calling this method, the string will be empty.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString};
+    /// let mut s: SmtString = "foo".into();
+    /// s.clear();
+    /// assert!(s.is_empty());
+    /// ```
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
     /// Appends the characters of `other` to this string.
     /// The characters are appended in order.
     ///
@@ -511,6 +538,22 @@ impl SmtString {
         SmtString(self.0.iter().copied().skip(n).collect())
     }
 
+    /// Returns the `n`-th character of this string.
+    /// Returns `None` if `n` is greater than or equal to the length of this string.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString, SmtChar};
+    /// let s: SmtString = "foo".into();
+    /// assert_eq!(s.nth(0), Some(SmtChar::new('f')));
+    /// assert_eq!(s.nth(1), Some(SmtChar::new('o')));
+    /// assert_eq!(s.nth(2), Some(SmtChar::new('o')));
+    /// assert_eq!(s.nth(3), None);
+    /// ```
+    pub fn nth(&self, n: usize) -> Option<SmtChar> {
+        self.0.get(n).copied()
+    }
+
     /// Returns the reverse of this string.
     ///
     /// # Examples
@@ -562,8 +605,21 @@ impl FromIterator<SmtChar> for SmtString {
     }
 }
 
+impl FromIterator<SmtString> for SmtString {
+    fn from_iter<I: IntoIterator<Item = SmtString>>(iter: I) -> Self {
+        iter.into_iter()
+            .fold(SmtString::empty(), |acc, s| acc.concat(&s))
+    }
+}
+
 impl From<&str> for SmtString {
     fn from(s: &str) -> Self {
+        SmtString(s.chars().map(SmtChar::new).collect())
+    }
+}
+
+impl From<String> for SmtString {
+    fn from(s: String) -> Self {
         SmtString(s.chars().map(SmtChar::new).collect())
     }
 }

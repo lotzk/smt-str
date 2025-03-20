@@ -253,6 +253,13 @@ impl NFA {
         self.states.len()
     }
 
+    /// Returns the number of transitions in the automaton.
+    /// This is the sum of the number of transitions of each state.
+    /// Note that this require a linear scan over all states and transitions.
+    pub fn num_transitions(&self) -> usize {
+        self.states.iter().map(|s| s.transitions.len()).sum()
+    }
+
     /// Returns an iterator over the states of the automaton.
     pub fn states(&self) -> impl Iterator<Item = StateId> {
         0..self.states.len()
