@@ -518,6 +518,20 @@ impl SmtString {
         self.0.first().copied()
     }
 
+    /// Returns the last character of this string, if it is not empty.
+    /// Returns `None` if this string is empty.
+    ///
+    /// # Examples
+    /// ```
+    /// use smtlib_str::{SmtString, SmtChar};
+    /// let s: SmtString = "foo".into();
+    /// assert_eq!(s.last(), Some(SmtChar::new('o')));
+    /// assert_eq!(SmtString::empty().last(), None);
+    /// ```
+    pub fn last(&self) -> Option<SmtChar> {
+        self.0.last().copied()
+    }
+
     /// Returns the prefix of length `n` of this string.
     /// If `n` is greater than the length of this string, the entire string is returned.
     /// If `n` is zero, the empty string is returned.
