@@ -3,9 +3,6 @@
 mod build;
 pub mod deriv;
 
-#[cfg(feature = "sampling")]
-pub mod sampling;
-
 use smallvec::SmallVec;
 
 use itertools::Itertools;

@@ -2,6 +2,8 @@ pub mod alphabet;
 #[cfg(feature = "automata")]
 pub mod automata;
 pub mod re;
+#[cfg(feature = "sampling")]
+pub mod sampling;
 
 use std::{fmt::Display, ops::Index};
 
@@ -368,8 +370,8 @@ impl SmtString {
     /// s.push(SmtChar::new('o'));
     /// assert_eq!(s, SmtString::from("foo"));  
     /// ```
-    pub fn push(&mut self, c: SmtChar) {
-        self.0.push(c);
+    pub fn push(&mut self, c: impl Into<SmtChar>) {
+        self.0.push(c.into());
     }
 
     /// Concatenates this string with `other` and returns the result.
@@ -388,6 +390,73 @@ impl SmtString {
         let mut s = self.clone();
         s.append(other);
         s
+    }
+
+    /// Checks if this string contains a character.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_strings::{SmtString, SmtChar};
+    /// let s: SmtString = "foobar".into();
+    /// assert!(s.contains_char(SmtChar::new('f')));
+    /// assert!(s.contains_char(SmtChar::new('o')));
+    /// assert!(s.contains_char(SmtChar::new('b')));
+    /// assert!(!s.contains_char(SmtChar::new('z')));
+    /// ```
+    pub fn contains_char(&self, c: impl Into<SmtChar>) -> bool {
+        self.0.contains(&c.into())
+    }
+
+    /// Return whether this string contains another string as a factor.
+    /// This is a naive implementation that checks all possible factors of this string, leading to O(n^2) complexity.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_strings::{SmtString};
+    /// let s: SmtString = "foobar".into();
+    /// assert!(s.contains(SmtString::empty()));
+    /// assert!(s.contains(SmtString::from("foo")));
+    /// assert!(s.contains(SmtString::from("bar")));
+    /// assert!(s.contains(SmtString::from("oba")));
+    /// assert!(!s.contains(SmtString::from("baz")));
+    /// ```
+    pub fn contains(&self, factor: SmtString) -> bool {
+        for i in 0..self.len() {
+            if self.drop(i).starts_with(&factor) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns whether this string starts with a prefix.
+    /// The empty string is a prefix of every string.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_strings::{SmtString};
+    /// let s: SmtString = "foobar".into();
+    /// assert!(s.starts_with(&SmtString::empty()));
+    /// assert!(s.starts_with(&SmtString::from("foo")));
+    /// assert!(!s.starts_with(&SmtString::from("bar")));
+    /// ```
+    pub fn starts_with(&self, prefix: &SmtString) -> bool {
+        self.0.starts_with(&prefix.0)
+    }
+
+    /// Returns whether this string ends with a suffix.
+    /// The empty string is a suffix of every string.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_strings::{SmtString};
+    /// let s: SmtString = "foobar".into();
+    /// assert!(s.ends_with(&SmtString::empty()));
+    /// assert!(s.ends_with(&SmtString::from("bar")));
+    /// assert!(!s.ends_with(&SmtString::from("foo")));
+    /// ```
+    pub fn ends_with(&self, suffix: &SmtString) -> bool {
+        self.0.ends_with(&suffix.0)
     }
 
     /// Returns the first character of this string, if it is not empty.
