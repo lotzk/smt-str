@@ -1,5 +1,5 @@
 pub mod comp;
-pub mod compile;
+mod compile;
 pub mod det;
 mod dot;
 pub mod inter;
@@ -15,6 +15,8 @@ use crate::{
 };
 
 extern crate dot as dotlib;
+
+pub use compile::compile;
 
 /// The type of a transition in a nondeterministic finite automaton.
 /// Every transition in an automaton is labeled with a type that determines the behavior of the transition.

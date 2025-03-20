@@ -10,8 +10,17 @@ use super::comp::complement;
 use super::inter::intersect;
 use super::{TransitionType, NFA};
 
+/// Compiles the given regex into an NFA.
+/// The NFA accepts exactly the language of the regex.
+/// The NFA is constructed using the Thompson construction.
+/// The returned automaton is trim but can contain epsilon transitions.
+pub fn compile(re: &Regex, builder: &mut ReBuilder) -> NFA {
+    let thompson = Thompson::default();
+    thompson.compile(re, builder)
+}
+
 #[derive(Default)]
-pub struct Thompson {
+struct Thompson {
     /// The NFA under construction
     /// The NFA accepts exactly the language of the regex that has been compiled last, but keeps the states of all previous compilations.
     /// This prevents that NFAs for multiple regexes need to be merged into a single automaton.
