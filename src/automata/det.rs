@@ -136,7 +136,7 @@ pub fn determinize(nfa: &NFA) -> NFA {
                 .unwrap();
         }
     }
-    det
+    det.trim()
 }
 
 /// Collect transitions for each symbol by partitioning the transitions of the NFA states from the state set on the char-ranges of the transitions

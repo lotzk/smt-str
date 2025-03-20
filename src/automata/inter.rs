@@ -15,8 +15,6 @@ use super::{StateId, Transition, TransitionType, NFA};
 /// The intersection is computed by constructing a product automaton, which has at most |N| * |M| states, where N and M are the number of states of the input automata.
 pub fn intersect(n: &NFA, m: &NFA) -> NFA {
     let mut result = NFA::new();
-    // the result will be trim.
-    result.trim = true;
     // Maps pairs of states from the input automata to the corresponding state in the result automaton.
     let mut state_map = IndexMap::new();
     // Queue of pairs of states from the input automata that need to be processed.
@@ -54,7 +52,7 @@ pub fn intersect(n: &NFA, m: &NFA) -> NFA {
             }
         }
     }
-    result
+    result.trim()
 }
 
 /// Intersects the two transitions
