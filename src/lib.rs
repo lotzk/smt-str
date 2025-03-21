@@ -1,3 +1,20 @@
+//! This crate provides types and utilities for working with SMT-LIB strings.
+//! An SMT-LIB string is a sequence of characters with unicode code points in the range 0x0000 to 0x2FFFF (first two planes of Unicode).
+//! The underlying semantics differ from those of Rust`s native `char` and `String` types:
+//!
+//! - **Character model**: Rust's `char` type represents any Unicode scalar value which is not a surrogate code point.
+//!   In SMT-LIB, a character is a unicode code point in the range 0x0000 to 0x2FFFF, including surrogate code points (which are not valid Rust `char`s).
+//! - **String length**: In Rust, the length of a string is counted in bytes whereas in In SMT-LIB, the length of a string is counted in characters.
+//!   For example, if a character takes more than one byte to encode (such as 🦀), Rust's `String.len()` will return the number of bytes.
+//!   In order to obtain the number of characters, one must count the number of `char`s in the string instead, which can easily lead to errors.
+//! - **Escaping**: In SMT-LIB, the only escape sequences are of the form `\uXXXX` and `\u{X...}`.
+//!   Especially, there are no escape sequences for control characters, such as `\n` or `\t`, that are present in Rust.
+//!
+//! This crate provides a convenient way to work with SMT-LIB strings using the [SmtChar] and [SmtString] types.
+//! The `SmtChar` type represents a unicode character in the range 0x0000 to 0x2FFFF.
+//! The `SmtString` type represents a sequence of `SmtChar` characters.
+//! The crate provides methods for creating, manipulating, and inspecting SMT-LIB strings such that they conform to the SMT-LIB standard.
+
 pub mod alphabet;
 #[cfg(feature = "automata")]
 pub mod automata;
@@ -11,21 +28,25 @@ use std::{fmt::Display, ops::Index};
 
 use quickcheck::Arbitrary;
 
-/// A unicode character in the range 0x0000 to 0x2FFFF.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SmtChar(u32);
-
 /// The maximum unicode character.
 pub const SMT_MAX_CODEPOINT: u32 = 0x2FFFF;
 
 /// The minimum unicode character.
 pub const SMT_MIN_CODEPOINT: u32 = 0x0000;
 
+/// A unicode character in the range 0x0000 to 0x2FFFF.
+/// This type is used to represent characters in SMT-LIB strings.
+/// Internally, a `SmtChar` is represented as a `u32` unicode code point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SmtChar(u32);
+
 impl SmtChar {
     /// The maximum `SmtChar`.
+    /// This is the unicode code point 0x2FFFF.
     pub const MAX: Self = Self(SMT_MAX_CODEPOINT);
 
     /// The minimum `SmtChar`.
+    /// This is the unicode code point 0x0000.
     pub const MIN: Self = Self(SMT_MIN_CODEPOINT);
 
     /// Create a new `SmtChar` from a `char`.
