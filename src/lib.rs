@@ -481,6 +481,11 @@ impl SmtString {
     /// assert!(s.contains(&SmtString::from("bar")));
     /// assert!(s.contains(&SmtString::from("oba")));
     /// assert!(!s.contains(&SmtString::from("baz")));
+    ///
+    /// // The empty string contains only has the empty string as a factor
+    /// let empty: SmtString = SmtString::empty();
+    /// assert!(empty.contains(&SmtString::empty()));
+    /// assert!(!empty.contains(&SmtString::from("foo")));
     /// ```
     pub fn contains(&self, factor: &SmtString) -> bool {
         self.index_of(factor, 0).is_some()
@@ -500,8 +505,17 @@ impl SmtString {
     /// assert_eq!(s.index_of(&SmtString::from("bar"),0), Some(3));
     /// assert_eq!(s.index_of(&SmtString::from("oba"),0), Some(2));
     /// assert_eq!(s.index_of(&SmtString::from("baz"),0), None);
+    ///
+    /// // If the string is empty, the only factor is the empty string
+    /// let empty: SmtString = SmtString::empty();
+    /// assert_eq!(empty.index_of(&SmtString::empty(),0), Some(0));
+    /// assert_eq!(empty.index_of(&SmtString::from("foo"),0), None);
     /// ```
     pub fn index_of(&self, factor: &SmtString, start: usize) -> Option<usize> {
+        if self.is_empty() {
+            return if factor.is_empty() { Some(0) } else { None };
+        }
+
         (start..self.len()).find(|&i| self.drop(i).starts_with(factor))
     }
 
@@ -1000,6 +1014,16 @@ mod tests {
         let s1 = s.to_string();
         let s2 = SmtString::parse(&s1);
         assert_eq!(s, s2);
+    }
+
+    #[quickcheck]
+    fn index_of_empty_is_always_zero(s: SmtString) {
+        assert_eq!(s.index_of(&SmtString::empty(), 0), Some(0));
+    }
+
+    #[quickcheck]
+    fn contains_empty(s: SmtString) {
+        assert!(s.contains(&SmtString::empty()))
     }
 
     #[test]
