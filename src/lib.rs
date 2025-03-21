@@ -306,7 +306,25 @@ impl SmtString {
         SmtString(chars)
     }
 
-    pub fn parse(input: &str) -> Option<Self> {
+    /// Parse a string into an SmtString.
+    ///
+    /// The input string can contain escaped characters. The only valid escape sequences are:
+    ///
+    /// - `\uDDDD`
+    /// - `\u{D}`,
+    /// - `\u{DD}`,
+    /// - `\u{DDD}`,
+    /// - `\u{DDDD}`,
+    /// - `\u{DDDDD}`
+    ///
+    /// where `D` is a hexadecimal digit such that the resulting code point is in the range 0x0000 to 0x2FFFF.
+    /// If the string contains valid escape sequences, they are replaced with the corresponding `SmtChar`.
+    /// If the string contains invalid escape sequences, they are treated as literals.
+    /// For example, the string `"foo\u{61}bar"` is parsed as the string `"fooabar"`.
+    /// But the string `"foo\u{61bar"` is parsed as the string `"foo\u{61bar"`.
+    /// The holds for syntactically valid escape sequences that result in code points outside the valid range.
+    /// For example, the string `"foo\u{3000A}bar"` is parsed as the string `"foo\u{3000A}bar"`, since the code point `0x3000A` is outside the valid range.
+    pub fn parse(input: &str) -> Self {
         let mut chars = input.chars().peekable();
         let mut result = Vec::new();
         let mut buffer = String::new();
@@ -337,7 +355,7 @@ impl SmtString {
             }
         }
 
-        Some(SmtString(result))
+        SmtString(result)
     }
 
     /// Returns whether this string is empty.
@@ -869,22 +887,22 @@ mod tests {
     fn test_parse_valid_strings_without_escaped() {
         assert_eq!(
             SmtString::parse("foo"),
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar('f' as u32),
                 SmtChar('o' as u32),
                 SmtChar('o' as u32),
-            ]))
+            ])
         );
         assert_eq!(
             SmtString::parse("123!@#"),
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar('1' as u32),
                 SmtChar('2' as u32),
                 SmtChar('3' as u32),
                 SmtChar('!' as u32),
                 SmtChar('@' as u32),
                 SmtChar('#' as u32)
-            ]))
+            ])
         );
     }
 
@@ -892,25 +910,25 @@ mod tests {
     fn test_parse_valid_string_with_one_escape() {
         assert_eq!(
             SmtString::parse(r#"a\u0042c"#),
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar('a' as u32),
                 SmtChar('B' as u32), // Unicode for 'B'
                 SmtChar('c' as u32)
-            ]))
+            ])
         );
 
         assert_eq!(
             SmtString::parse(r#"x\u{41}y"#),
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar('x' as u32),
                 SmtChar('A' as u32), // Unicode for 'A'
                 SmtChar('y' as u32)
-            ]))
+            ])
         );
 
         assert_eq!(
             SmtString::parse(r#"\u{1F600}"#), // Unicode for 😀
-            Some(SmtString(vec![SmtChar(0x1F600)]))
+            SmtString(vec![SmtChar(0x1F600)])
         );
     }
 
@@ -918,19 +936,19 @@ mod tests {
     fn test_parse_valid_string_with_multiple_escape() {
         assert_eq!(
             SmtString::parse(r#"abc\u0044\u{45}f"#),
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar('a' as u32),
                 SmtChar('b' as u32),
                 SmtChar('c' as u32),
                 SmtChar('D' as u32), // Unicode for 'D'
                 SmtChar('E' as u32), // Unicode for 'E'
                 SmtChar('f' as u32),
-            ]))
+            ])
         );
 
         assert_eq!(
             SmtString::parse(r#"\u{1F604} smile \u{1F60A}"#), // 😄 smile 😊
-            Some(SmtString(vec![
+            SmtString(vec![
                 SmtChar(0x1F604), // 😄
                 SmtChar(' ' as u32),
                 SmtChar('s' as u32),
@@ -940,43 +958,47 @@ mod tests {
                 SmtChar('e' as u32),
                 SmtChar(' ' as u32),
                 SmtChar(0x1F60A), // 😊
-            ]))
+            ])
         );
     }
 
     #[test]
     fn test_parse_invalid_escape_sequences() {
         // Missing closing brace
-        assert_eq!(SmtString::parse(r#"\u{123"#), None);
+        let s = r#"\u{123"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
 
         // Non-hex character in escape sequence
-        assert_eq!(SmtString::parse(r#"\u{12G3}"#), None);
+        let s = r#"\u{12G3}"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
 
         // Escape sequence too long
-        assert_eq!(SmtString::parse(r#"\u{123456}"#), None);
+        let s = r#"\u{123456}"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
 
         // Escape sequence without digits
-        assert_eq!(SmtString::parse(r#"\u{}"#), None);
+        let s = r#"\u{}"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
 
         // Invalid escape sequence (SMT 2.5 style)
-        assert_eq!(SmtString::parse(r#"\x1234"#), None);
+        let s = r#"\x1234"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
 
         // Unicode above allowed SMT max
-        assert_eq!(SmtString::parse(r#"\u{110000}"#), None); // Invalid Unicode point
-    }
-
-    #[test]
-    fn test_parse_invalid_escape_sequence_with_longer_string() {
-        // Mix of valid and invalid escape sequences in a longer string
-        assert_eq!(SmtString::parse("Hello \\u{1F60G} World"), None); // Invalid hex digit 'G'
-        assert_eq!(SmtString::parse("Test \\u{} fail"), None); // Empty escape sequence
-        assert_eq!(SmtString::parse("Mix \\u{41} and \\u{XYZ}"), None); // Invalid escape 'XYZ'
+        let s = r#"\u{110000}"#;
+        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        assert_eq!(SmtString::parse(s), expected);
     }
 
     #[quickcheck]
     fn test_print_parse_inverse(s: SmtString) {
         let s1 = s.to_string();
-        let s2 = SmtString::parse(&s1).unwrap();
+        let s2 = SmtString::parse(&s1);
         assert_eq!(s, s2);
     }
 
