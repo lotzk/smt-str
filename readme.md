@@ -1,17 +1,17 @@
-# `smtlib-str`
+# `smt-str`
 
-[![CI](https://github.com/lotzk/smtlib-str/actions/workflows/build.yml/badge.svg)](https://github.com/lotzk/smtlib-str/actions/workflows/build.yml)
+[![CI](https://github.com/lotzk/smt-str/actions/workflows/build.yml/badge.svg)](https://github.com/lotzk/smt-str/actions/workflows/build.yml)
 
 **A Rust crate for working with SMT-LIB strings, regular expressions, and automata.**
 
-`smtlib-str` provides data structures and utilities to parse, manipulate, and reason about strings and regular expressions following the semantics defined in the [SMT-LIB theory of strings](https://smtlib.cs.uiowa.edu/theories-UnicodeStrings.shtml). It also includes tools for compiling SMT-LIB regular expressions into NFAs.
+`smt-str` provides data structures and utilities to parse, manipulate, and reason about strings and regular expressions following the semantics defined in the [SMT-LIB theory of strings](https://smtlib.cs.uiowa.edu/theories-UnicodeStrings.shtml). It also includes tools for compiling SMT-LIB regular expressions into NFAs.
 
 ## Installation
 
 Install with cargo add:
 
 ```bash
-cargo add smtlib-str --features=<features>
+cargo add smt-str --features=<features>
 ```
 
 By default, no addtional features are enabled.
