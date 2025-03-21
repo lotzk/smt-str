@@ -588,7 +588,7 @@ mod test {
         let overlapping_range = CharRange::new('g', 'z');
 
         assert_eq!(partitioning.insert(range1.clone(), 1), Ok(()));
-        println!("{}", partitioning);
+
         // Insert overlapping range, expect an error
         assert_eq!(
             partitioning.insert(overlapping_range.clone(), 2),
