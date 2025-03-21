@@ -47,8 +47,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let range = CharRange::all();
     /// assert!(range.contains(0));
@@ -65,8 +65,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// assert_eq!(CharRange::new('a', 'z').size(), 26);
     /// assert_eq!(CharRange::singleton('a').size(), 1);
@@ -88,8 +88,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// assert!(CharRange::empty().is_empty());
     /// assert!(!CharRange::new('a', 'z').is_empty());
@@ -115,8 +115,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'z');
     /// assert!(range.choose().is_some());
@@ -134,8 +134,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// assert!(CharRange::singleton('a').is_singleton());
     /// assert!(!CharRange::new('a', 'z').is_singleton());
@@ -149,8 +149,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// assert!(CharRange::all().is_full());
     /// assert!(CharRange::new(SmtChar::MIN, SmtChar::MAX).is_full());
@@ -166,8 +166,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'z');
     /// assert!(range.contains('a'));
@@ -187,8 +187,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let r1 = CharRange::new('a', 'c');
     /// let r2 = CharRange::new('a', 'b');
@@ -208,8 +208,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let r1 = CharRange::new('a', 'm');
     /// let r2 = CharRange::new('a', 'z');
@@ -236,8 +236,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let range = CharRange::new('a', 'd');
     /// let complement = range.complement();
@@ -274,8 +274,8 @@ impl CharRange {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::CharRange;
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::CharRange;
+    /// use smt_str::SmtChar;
     ///
     /// let r1 = CharRange::new('a', 'z');
     /// let r2 = CharRange::new('a', 'm');
@@ -372,8 +372,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::{Alphabet, CharRange};
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::{Alphabet, CharRange};
+    /// use smt_str::SmtChar;
     ///
     /// let mut alphabet = Alphabet::default();
     /// alphabet.insert(CharRange::new('a', 'd'));
@@ -452,8 +452,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::{Alphabet, CharRange};
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::{Alphabet, CharRange};
+    /// use smt_str::SmtChar;
     ///
     /// let mut a1 = Alphabet::default();
     /// a1.insert(CharRange::new('a', 'd'));
@@ -481,8 +481,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::{Alphabet, CharRange};
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::{Alphabet, CharRange};
+    /// use smt_str::SmtChar;
     ///
     /// let mut a1 = Alphabet::default();
     /// a1.insert(CharRange::new('a', 'd'));
@@ -518,8 +518,8 @@ impl Alphabet {
     ///
     /// # Example
     /// ```
-    /// use smtlib_str::alphabet::{Alphabet, CharRange};
-    /// use smtlib_str::SmtChar;
+    /// use smt_str::alphabet::{Alphabet, CharRange};
+    /// use smt_str::SmtChar;
     ///
     /// let mut a = Alphabet::default();
     /// a.insert(CharRange::new('a', 'd'));

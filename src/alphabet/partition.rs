@@ -23,7 +23,7 @@ impl AlphabetPartition {
     /// Creates a partitioning with a single range.
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartition::singleton(range.clone());
@@ -49,7 +49,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     ///
@@ -78,7 +78,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'));
@@ -101,7 +101,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let mut partitioning = AlphabetPartition::empty();
@@ -134,7 +134,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'));
     ///
@@ -162,7 +162,7 @@ impl AlphabetPartition {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
     ///
     /// let mut partitioning1 = AlphabetPartition::empty();
     /// partitioning1.insert_unchecked(CharRange::new('a', 'z'));
@@ -227,7 +227,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// The range is associated with the given value.
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartitionMap::singleton(range.clone(), 1);
@@ -249,7 +249,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     ///
@@ -278,7 +278,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
@@ -306,7 +306,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
     /// let mut partitioning = AlphabetPartitionMap::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
     /// assert_eq!(partitioning.get(&CharRange::new('a','z')), Some(&0));
@@ -357,7 +357,7 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// # Examples
     ///
     /// ```
-    /// use smtlib_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning1 = AlphabetPartitionMap::empty();
     /// partitioning1.insert_unchecked(CharRange::new('a', 'z'), 1);
