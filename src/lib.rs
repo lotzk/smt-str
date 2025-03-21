@@ -36,16 +36,19 @@ impl SmtChar {
         SmtChar(code)
     }
 
-    /// Get the `char` representation of this `SmtChar`.
+    /// Get the `char` representation of this `SmtChar`, if it can be represented as a `char`.
+    ///
     ///
     /// # Examples
     /// ```
     /// use smtlib_str::SmtChar;
     /// let c = SmtChar::new('a');
-    /// assert_eq!(c.as_char(), 'a');
+    /// assert_eq!(c.as_char(), Some('a'));
+    /// // This is a surrogate code point and cannot be represented as a `char`.
+    /// assert_eq!(SmtChar::from(55296).as_char(), None);
     ///```
-    pub fn as_char(self) -> char {
-        std::char::from_u32(self.0).unwrap()
+    pub fn as_char(self) -> Option<char> {
+        char::from_u32(self.0)
     }
 
     /// Get the `u32` representation of this `SmtChar`.
@@ -242,7 +245,14 @@ impl From<u32> for SmtChar {
 impl Display for SmtChar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.printable() {
-            write!(f, "{}", self.as_char())
+            // printable ASCII character are always safe to unwrap
+            let c = self.as_char().unwrap();
+            // Although the character is printable, we still escape it if it is a backslash or a quote
+            if c == '\\' || c == '"' {
+                write!(f, "{}", self.escape())
+            } else {
+                write!(f, "{}", c)
+            }
         } else {
             write!(f, "{}", self.escape())
         }
