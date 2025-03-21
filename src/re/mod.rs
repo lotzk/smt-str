@@ -706,45 +706,39 @@ impl ReOp {
 impl Display for ReOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReOp::Literal(w) => write!(f, "'{}'", w),
-            ReOp::None => write!(f, "∅"),
-            ReOp::All => write!(f, "(Σ*)"),
-            ReOp::Any => write!(f, "Σ"),
+            ReOp::Literal(w) => write!(f, "(str.to_re \"{}\")", w),
+            ReOp::None => write!(f, "re.none"),
+            ReOp::All => write!(f, "re.all"),
+            ReOp::Any => write!(f, "re.allchar"),
             ReOp::Concat(rs) => {
-                write!(f, "(")?;
+                write!(f, "(re.++")?;
                 for r in rs {
-                    write!(f, "{}", r)?;
+                    write!(f, " {}", r)?;
                 }
                 write!(f, ")")
             }
             ReOp::Union(rs) => {
-                write!(f, "(")?;
-                for (i, r) in rs.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, " | ")?;
-                    }
-                    write!(f, "{}", r)?;
+                write!(f, "(re.union")?;
+                for r in rs.iter() {
+                    write!(f, " {}", r)?;
                 }
                 write!(f, ")")
             }
             ReOp::Inter(rs) => {
-                write!(f, "(")?;
-                for (i, r) in rs.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, " & ")?;
-                    }
-                    write!(f, "{}", r)?;
+                write!(f, "(re.inter")?;
+                for r in rs.iter() {
+                    write!(f, " {}", r)?;
                 }
                 write!(f, ")")
             }
-            ReOp::Star(r) => write!(f, "{}*", r),
-            ReOp::Plus(p) => write!(f, "{}+", p),
-            ReOp::Opt(r) => write!(f, "{}?", r),
-            ReOp::Range(r) => write!(f, "{}", r),
-            ReOp::Comp(c) => write!(f, "¬{}", c),
-            ReOp::Diff(r1, r2) => write!(f, "({} - {})", r1, r2),
-            ReOp::Pow(r, n) => write!(f, "({}^{})", r, n),
-            ReOp::Loop(r, l, u) => write!(f, "({}^({}..{}))", r, l, u),
+            ReOp::Star(r) => write!(f, "(re.* {})", r),
+            ReOp::Plus(p) => write!(f, "(re.+ {})", p),
+            ReOp::Opt(r) => write!(f, "(re.opt {})", r),
+            ReOp::Range(r) => write!(f, "(re.range \"{}\" \"{}\")", r.start(), r.end()),
+            ReOp::Comp(c) => write!(f, "(re.comp {})", c),
+            ReOp::Diff(r1, r2) => write!(f, "(re.diff {} {})", r1, r2),
+            ReOp::Pow(r, n) => write!(f, "((_ re.^ {}) {})", n, r),
+            ReOp::Loop(r, l, u) => write!(f, "((_ re.loop {} {}) {})", l, u, r),
         }
     }
 }
