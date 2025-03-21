@@ -602,7 +602,7 @@ impl NFA {
     /// - there is no path from the initial state to a final state.
     pub fn is_empty(&self) -> bool {
         if self.trim {
-            return self.finals.is_empty() || self.initial.is_none();
+            self.finals.is_empty() || self.initial.is_none()
         } else {
             // Check if there is a path from the initial state to a final state
             // If a path exists, then also a shortest path exists
