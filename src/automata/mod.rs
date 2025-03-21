@@ -189,6 +189,24 @@ impl NFA {
         }
     }
 
+    /// Merges the other automaton into this automaton.
+    /// The states and transitions of the other automaton are copied into this automaton.
+    /// The transitions are updated to point to the corresponding states in this automaton.
+    /// The initial state and final states are not changed.
+    /// The method returns the offset of the states in the other automaton.
+    pub(crate) fn merge(&mut self, other: &Self) -> usize {
+        let offset = self.states.len();
+
+        self.states.extend(other.states.iter().cloned());
+        // Change the destinations of the transitions to point to the new states
+        for state in self.states.iter_mut().skip(offset) {
+            for t in state.transitions.iter_mut() {
+                t.destination += offset;
+            }
+        }
+        offset
+    }
+
     /// Create a new nondeterministic finite automaton that accepts all strings.
     fn universal() -> Self {
         let mut aut = Self::new();

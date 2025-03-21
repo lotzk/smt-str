@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::vec;
 
+use indexmap::IndexMap;
+
 use crate::alphabet::{Alphabet, CharRange};
 
 use crate::re::{union_of_chars, ReBuilder, ReOp, Regex};
@@ -21,52 +23,50 @@ pub fn compile(re: &Regex, builder: &mut ReBuilder) -> NFA {
 
 #[derive(Default)]
 struct Thompson {
-    /// The NFA under construction
-    /// The NFA accepts exactly the language of the regex that has been compiled last, but keeps the states of all previous compilations.
-    /// This prevents that NFAs for multiple regexes need to be merged into a single automaton.
-    nfa: NFA,
+    cache: IndexMap<Regex, NFA>,
 }
 
 impl Thompson {
     /// Creates an NFA accepting no words.
     /// This is exactly the empty automaton.
-    fn none(&mut self) {
-        self.nfa.initial = None;
-        self.nfa.finals.clear();
+    fn none(&mut self) -> NFA {
+        NFA::new()
     }
 
     /// Creates an NFA accepting exactly the given word
     /// The automaton has a single initial state with transitions for each character in the word.
     /// The final state is the last state of the word.
     /// As such, the automaton has exactly `word.len() + 1` states.
-    fn word(&mut self, word: &SmtString) {
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
+    fn word(&mut self, word: &SmtString) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
         let mut q = q0;
         for c in word.iter() {
-            let q1 = self.nfa.new_state();
-            self.nfa
-                .add_transition(q, q1, TransitionType::Range(CharRange::singleton(*c)))
+            let q1 = nfa.new_state();
+            nfa.add_transition(q, q1, TransitionType::Range(CharRange::singleton(*c)))
                 .unwrap();
             q = q1;
         }
-        self.nfa.add_final(q).unwrap();
+        nfa.add_final(q).unwrap();
+        nfa
     }
 
     /// Creates an NFA accepting any word of length 1 that is in the given range
     /// The automaton has two states: an initial state and a final state, connected by a transition that accepts any character in the range.
     /// If the range is empty, the automaton is empty.
-    fn range(&mut self, range: CharRange) {
+    fn range(&mut self, range: CharRange) -> NFA {
         if range.is_empty() {
             return self.none();
         }
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
-        let q1 = self.nfa.new_state();
-        self.nfa
-            .add_transition(q0, q1, TransitionType::Range(range))
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        let q1 = nfa.new_state();
+        nfa.add_transition(q0, q1, TransitionType::Range(range))
             .unwrap();
-        self.nfa.add_final(q1).unwrap();
+        nfa.add_final(q1).unwrap();
+        nfa
     }
 
     /// Creates an NFA accepting the union of the given character ranges.
@@ -74,269 +74,251 @@ impl Thompson {
     /// This is a special case of the `union` method that accepts only character ranges.
     /// The automaton has a single initial state and a single final state, connected by transitions for each range.
     /// Therefore, the automaton is slimmer than the general union method.
-    fn ranges(&mut self, rs: Vec<CharRange>) {
+    fn ranges(&mut self, rs: Vec<CharRange>) -> NFA {
         // Compress the ranges
         let mut alphabet = Alphabet::default();
         rs.into_iter().for_each(|r| alphabet.insert(r));
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
-        let qf = self.nfa.new_state();
-        self.nfa.add_final(qf).unwrap();
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        let qf = nfa.new_state();
+        nfa.add_final(qf).unwrap();
         for r in alphabet.iter_ranges() {
-            self.nfa
-                .add_transition(q0, qf, TransitionType::Range(r))
+            nfa.add_transition(q0, qf, TransitionType::Range(r))
                 .unwrap();
         }
+        nfa
     }
 
     /// Creates an NFA accepting all words of length 1 that are not in the given range and all words with length != 1
-    fn not_range(&mut self, range: CharRange) {
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
-        let q1 = self.nfa.new_state();
-        let q2 = self.nfa.new_state();
-        self.nfa
-            .add_transition(q0, q2, TransitionType::NotRange(range))
+    fn not_range(&mut self, range: CharRange) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        let q1 = nfa.new_state();
+        let q2 = nfa.new_state();
+        nfa.add_transition(q0, q2, TransitionType::NotRange(range))
             .unwrap();
-        self.nfa
-            .add_transition(q0, q1, TransitionType::Range(range))
+        nfa.add_transition(q0, q1, TransitionType::Range(range))
             .unwrap();
-        self.nfa
-            .add_transition(q1, q2, TransitionType::Range(CharRange::all()))
+        nfa.add_transition(q1, q2, TransitionType::Range(CharRange::all()))
             .unwrap(); // Word of length 2
-        self.nfa
-            .add_transition(q2, q2, TransitionType::Range(CharRange::all()))
+        nfa.add_transition(q2, q2, TransitionType::Range(CharRange::all()))
             .unwrap(); // Word of length > 2
-        self.nfa.add_final(q2).unwrap();
-        self.nfa.add_final(q0).unwrap();
+        nfa.add_final(q2).unwrap();
+        nfa.add_final(q0).unwrap();
+        nfa
     }
 
     /// Creates an NFA accepting any symbol, i.e., any word of length 1
-    fn any(&mut self) {
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
-        let q1 = self.nfa.new_state();
-        self.nfa
-            .add_transition(q0, q1, TransitionType::Range(CharRange::all()))
+    fn any(&mut self) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        let q1 = nfa.new_state();
+        nfa.add_transition(q0, q1, TransitionType::Range(CharRange::all()))
             .unwrap();
-        self.nfa.add_final(q1).unwrap();
+        nfa.add_final(q1).unwrap();
+        nfa
     }
 
     /// Creates the universal NFA, i.e., the NFA accepting all words.
     /// The automaton has a single state that is both initial and final, with a self-loop that accepts any character.
-    fn all(&mut self) {
-        let q0 = self.nfa.new_state();
-        self.nfa.set_initial(q0).unwrap();
-        self.nfa.add_final(q0).unwrap();
-        self.nfa
-            .add_transition(q0, q0, TransitionType::Range(CharRange::all()))
+    fn all(&mut self) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q0).unwrap();
+        nfa.add_transition(q0, q0, TransitionType::Range(CharRange::all()))
             .unwrap();
+        nfa
     }
 
     /// Creates an NFA accepting the union of the given NFAs
-    fn union(&mut self, rs: &[Regex], builder: &mut ReBuilder) {
-        let q0 = self.nfa.new_state();
-        let mut finals = HashSet::new();
+    fn union(&mut self, rs: &[Regex], builder: &mut ReBuilder) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+
         for r in rs {
-            self.compile_rec(r, builder);
-            if let Some(initial) = self.nfa.initial() {
-                self.nfa
-                    .add_transition(q0, initial, TransitionType::Epsilon)
+            let nfa_r = self.compile_rec(r, builder);
+
+            let offset = nfa.merge(&nfa_r);
+            if let Some(initial) = nfa_r.initial() {
+                nfa.add_transition(q0, initial + offset, TransitionType::Epsilon)
                     .unwrap();
             }
-            for qf in self.nfa.finals() {
-                finals.insert(qf);
+            for qf in nfa_r.finals() {
+                nfa.add_final(qf + offset).unwrap();
             }
         }
-        self.nfa.set_initial(q0).unwrap();
-        self.nfa.finals = finals;
+        nfa.set_initial(q0).unwrap();
+        nfa
     }
 
     /// Creates an NFA accepting the concatenation of the given NFAs
-    fn concat(&mut self, rs: &[Regex], builder: &mut ReBuilder) {
-        let q0 = self.nfa.new_state();
-        let mut finals = HashSet::new();
-        finals.insert(q0);
+    fn concat(&mut self, rs: &[Regex], builder: &mut ReBuilder) -> NFA {
+        let mut nfa = NFA::new();
+        let mut last_finals = HashSet::new();
+        let mut first = true;
         for r in rs {
-            self.compile_rec(r, builder);
-            if let Some(initial) = self.nfa.initial() {
-                for qf in finals {
-                    self.nfa
-                        .add_transition(qf, initial, TransitionType::Epsilon)
-                        .unwrap();
+            let nfa_r = self.compile_rec(r, builder);
+
+            if first {
+                nfa = nfa_r;
+                first = false;
+                last_finals = HashSet::from_iter(nfa.finals());
+            } else {
+                let offset = nfa.merge(&nfa_r);
+
+                for qf in &last_finals {
+                    if let Some(initial) = nfa_r.initial() {
+                        nfa.add_transition(*qf, initial + offset, TransitionType::Epsilon)
+                            .unwrap();
+                    }
+                }
+                nfa.finals.clear();
+                last_finals.clear();
+                for qf in nfa_r.finals() {
+                    nfa.add_final(qf + offset).unwrap();
+                    last_finals.insert(qf + offset);
                 }
             }
-            finals = self.nfa.finals.clone();
-            self.nfa.finals.clear();
         }
-        self.nfa.set_initial(q0).unwrap();
-        self.nfa.finals = finals;
+        nfa
     }
 
-    fn inter(&mut self, rs: &[Regex], builder: &mut ReBuilder) {
+    fn inter(&mut self, rs: &[Regex], builder: &mut ReBuilder) -> NFA {
         if rs.is_empty() {
             return self.none();
         }
         // we need to collect all sub-NFAs and intersect them
-        self.compile_rec(&rs[0], builder);
-        let mut nfa = self.nfa.clone();
+
+        let mut nfa = self.compile_rec(&rs[0], builder);
 
         for r in rs.iter().skip(1) {
-            // we can clear the nfa as we have already intersected it with the first regex and don't need it anymore
-            // this saves memory
-            self.nfa = NFA::new();
-            self.compile_rec(r, builder);
-            nfa = intersect(&nfa, &self.nfa)
+            let nfa_r = self.compile_rec(r, builder);
+            nfa = intersect(&nfa, &nfa_r)
         }
 
-        self.nfa = nfa;
+        nfa
     }
 
     /// Creates an NFA accepting the Kleene star of the given NFA
-    fn star(&mut self, r: &Regex, builder: &mut ReBuilder) {
-        self.compile_rec(r, builder);
-        if let Some(q0) = self.nfa.initial() {
-            let new_qf = self.nfa.new_state();
-            let new_q0 = self.nfa.new_state();
+    fn star(&mut self, r: &Regex, builder: &mut ReBuilder) -> NFA {
+        let mut nfa = self.compile_rec(r, builder);
+        if let Some(q0) = nfa.initial() {
+            let new_qf = nfa.new_state();
+            let new_q0 = nfa.new_state();
 
-            self.nfa
-                .add_transition(new_q0, q0, TransitionType::Epsilon)
+            nfa.add_transition(new_q0, q0, TransitionType::Epsilon)
                 .unwrap();
-            self.nfa
-                .add_transition(new_q0, new_qf, TransitionType::Epsilon)
+            nfa.add_transition(new_q0, new_qf, TransitionType::Epsilon)
                 .unwrap();
 
             // Create a transition from the final states to the initial state and to the new final state
             // Need to store the new transitions in a separate vector to avoid modifying the NFA while iterating over it
             let mut new_transitions = vec![];
-            for final_ in self.nfa.finals() {
+            for final_ in nfa.finals() {
                 let initial = q0;
                 new_transitions.push((final_, initial, TransitionType::Epsilon));
                 new_transitions.push((final_, new_qf, TransitionType::Epsilon));
             }
             for (q1, q2, t) in new_transitions {
-                self.nfa.add_transition(q1, q2, t).unwrap();
+                nfa.add_transition(q1, q2, t).unwrap();
             }
-            self.nfa.finals.clear();
-            self.nfa.add_final(new_qf).unwrap();
-            self.nfa.set_initial(new_q0).unwrap();
+            nfa.finals.clear();
+            nfa.add_final(new_qf).unwrap();
+            nfa.set_initial(new_q0).unwrap();
         }
+        nfa
     }
 
     /// Creates an NFA accepting the Kleene plus, i.e., the positive closure, of the given NFA
-    fn plus(&mut self, r: &Regex, builder: &mut ReBuilder) {
+    fn plus(&mut self, r: &Regex, builder: &mut ReBuilder) -> NFA {
         // Same as Kleene star but we omit the transition that goes from the new initial to the new final, i.e., the transition that "skips" the inner regex.
-        self.compile_rec(r, builder);
-        if let Some(q0) = self.nfa.initial() {
-            let new_qf = self.nfa.new_state();
-            let new_q0 = self.nfa.new_state();
+        let mut nfa = self.compile_rec(r, builder);
 
-            self.nfa
-                .add_transition(new_q0, q0, TransitionType::Epsilon)
+        if let Some(q0) = nfa.initial() {
+            let new_qf = nfa.new_state();
+            let new_q0 = nfa.new_state();
+
+            nfa.add_transition(new_q0, q0, TransitionType::Epsilon)
                 .unwrap();
 
             // Create a transition from the final states to the initial state and to the new final state
             // Need to store the new transitions in a separate vector to avoid modifying the NFA while iterating over it
             let mut new_transitions = vec![];
-            for final_ in self.nfa.finals() {
+            for final_ in nfa.finals() {
                 let initial = q0;
                 new_transitions.push((final_, initial, TransitionType::Epsilon));
                 new_transitions.push((final_, new_qf, TransitionType::Epsilon));
             }
             for (q1, q2, t) in new_transitions {
-                self.nfa.add_transition(q1, q2, t).unwrap();
+                nfa.add_transition(q1, q2, t).unwrap();
             }
-            self.nfa.finals.clear();
-            self.nfa.add_final(new_qf).unwrap();
-            self.nfa.set_initial(new_q0).unwrap();
+            nfa.finals.clear();
+            nfa.add_final(new_qf).unwrap();
+            nfa.set_initial(new_q0).unwrap();
         }
+        nfa
     }
 
     /// Creates an NFA accepting the regex and the empty word
     /// This is achieved by simply adding the initial state as a final state.
-    fn opt(&mut self, r: &Regex, builder: &mut ReBuilder) {
-        self.compile_rec(r, builder);
-        if let Some(q0) = self.nfa.initial() {
-            self.nfa.add_final(q0).unwrap();
+    fn opt(&mut self, r: &Regex, builder: &mut ReBuilder) -> NFA {
+        let mut nfa = self.compile_rec(r, builder);
+        if let Some(q0) = nfa.initial() {
+            nfa.add_final(q0).unwrap();
         }
+        nfa
     }
 
     /// Creates an NFA accepting the `n`th power of the given regex
-    fn pow(&mut self, r: &Regex, n: u32, builder: &mut ReBuilder) {
+    fn pow(&mut self, r: &Regex, n: u32, builder: &mut ReBuilder) -> NFA {
         let concat = vec![r.clone(); n as usize];
         self.concat(&concat, builder)
     }
 
     /// Creates an NFA accepting the complement of the given regex
-    fn comp(&mut self, r: &Regex, builder: &mut ReBuilder) {
-        self.compile_rec(r, builder);
+    fn comp(&mut self, r: &Regex, builder: &mut ReBuilder) -> NFA {
+        let nfa = self.compile_rec(r, builder);
         // Complement the NFA we just compiled
-        let comp = complement(&self.nfa);
-        self.nfa = comp;
+        complement(&nfa)
     }
 
     /// Creates an NFA accepting the difference of the two given regexes
-    fn diff(&mut self, r1: &Regex, r2: &Regex) {
-        self.compile_rec(r1, &mut ReBuilder::default());
-        let nfa1 = self.nfa.clone();
-        self.compile_rec(r2, &mut ReBuilder::default());
-        let nfa2 = self.nfa.clone();
+    fn diff(&mut self, r1: &Regex, r2: &Regex) -> NFA {
+        let nfa1 = self.compile_rec(r1, &mut ReBuilder::default());
+
+        let nfa2 = self.compile_rec(r2, &mut ReBuilder::default());
 
         // The difference is the intersection of the first automaton with the complement of the second automaton
         let comp = complement(&nfa2);
-        let inter = intersect(&nfa1, &comp);
-        self.nfa = inter;
+        intersect(&nfa1, &comp)
     }
 
     /// Creates an NFA accepting the loop of the given regex
-    /// The loop is the union of the `lower`th to `upper`th power of the regex.
-    fn loop_(&mut self, regex: &Regex, lower: u32, upper: u32, builder: &mut ReBuilder) {
-        // Concat the automaton u times, but after lower times, insert an epsilon transition to the final final state
-        let q0 = self.nfa.new_state();
-        let mut optionals = HashSet::new();
-        let mut last_finals = HashSet::new();
-        last_finals.insert(q0);
-
-        for i in 1..=upper {
-            self.compile_rec(regex, builder);
-            if let Some(initial) = self.nfa.initial() {
-                for qf in last_finals {
-                    self.nfa
-                        .add_transition(qf, initial, TransitionType::Epsilon)
-                        .unwrap();
-                }
-            }
+    /// That is, accepts at least `lower` and at most `upper` repetitions of the regex.
+    fn loop_(&mut self, regex: &Regex, lower: u32, upper: u32, builder: &mut ReBuilder) -> NFA {
+        let mut rs = Vec::with_capacity(upper as usize);
+        for i in 0..upper {
             if i >= lower {
-                optionals.extend(self.nfa.finals());
+                rs.push(builder.opt(regex.clone()));
+            } else {
+                rs.push(regex.clone());
             }
-            last_finals = self.nfa.finals.clone();
-            self.nfa.finals.clear();
         }
-        let qf = self.nfa.new_state();
-        for final_ in &last_finals {
-            self.nfa
-                .add_transition(*final_, qf, TransitionType::Epsilon)
-                .unwrap();
-        }
-        for opt in optionals.iter().filter(|q| !last_finals.contains(q)) {
-            self.nfa
-                .add_transition(*opt, qf, TransitionType::Epsilon)
-                .unwrap();
-        }
-        self.nfa.set_initial(q0).unwrap();
-        self.nfa.finals = HashSet::new();
-        self.nfa.add_final(qf).unwrap();
-        if lower == 0 {
-            self.nfa.add_final(q0).unwrap();
-        }
+        self.concat(&rs, builder)
     }
 
-    fn compile_rec(&mut self, regex: &Regex, builder: &mut ReBuilder) {
-        if let Some(uoc) = union_of_chars(regex) {
-            self.ranges(uoc);
-            return;
+    fn compile_rec(&mut self, regex: &Regex, builder: &mut ReBuilder) -> NFA {
+        if let Some(nfa) = self.cache.get(regex) {
+            return nfa.clone();
         }
-        match regex.op() {
+        if let Some(uoc) = union_of_chars(regex) {
+            return self.ranges(uoc);
+        }
+        let nfa = match regex.op() {
             ReOp::Literal(w) => self.word(w),
             ReOp::None => self.none(),
             ReOp::All => self.all(),
@@ -357,12 +339,16 @@ impl Thompson {
             ReOp::Pow(r, n) => self.pow(r, *n, builder),
             ReOp::Loop(r, l, u) => self.loop_(r, *l, *u, builder),
         };
+
+        self.cache.insert(regex.clone(), nfa.clone());
+
+        nfa
     }
 
     /// Compiles the given regex into an NFA.
     pub fn compile(mut self, regex: &Regex, builder: &mut ReBuilder) -> NFA {
-        self.compile_rec(regex, builder);
-        self.nfa.trim()
+        let nfa = self.compile_rec(regex, builder);
+        nfa.trim()
     }
 }
 
@@ -503,6 +489,8 @@ mod test {
         let re = builder.comp(re);
 
         let comp = r.complement();
+        let th = Thompson::default();
+        let nfa = th.compile(&re, &mut builder);
 
         for crange in comp {
             debug_assert!(crange.intersect(&r).is_empty());
@@ -515,11 +503,58 @@ mod test {
 
             for _ in 0..100 {
                 let c = dist_in.sample(&mut rng);
-                test_acceptance(&re, &mut builder, &[SmtChar::from(c).into()], &[]);
+                assert!(nfa.accepts(&SmtChar::from(c).into()));
             }
         }
 
         TestResult::passed()
+    }
+
+    #[quickcheck]
+    fn test_compile_comp_char(r: SmtChar) -> TestResult {
+        let mut builder = ReBuilder::default();
+
+        let re = builder.to_re(r.into());
+        let re = builder.comp(re);
+
+        let comp = CharRange::singleton(r).complement();
+        let th = Thompson::default();
+        let nfa = th.compile(&re, &mut builder);
+
+        for crange in comp {
+            let mut rng = rand::rng();
+            let dist_in =
+                match rand::distr::Uniform::new_inclusive(crange.start().0, crange.end().0) {
+                    Ok(d) => d,
+                    Err(e) => panic!("Error: {}", e),
+                };
+
+            for _ in 0..100 {
+                let c = dist_in.sample(&mut rng);
+                assert!(nfa.accepts(&SmtChar::from(c).into()));
+            }
+        }
+
+        TestResult::passed()
+    }
+
+    #[test]
+    fn test_compile_concat_comp_char() {
+        let mut builder = ReBuilder::default();
+        let a = builder.to_re("a".into());
+        let b = builder.to_re("b".into());
+        let not_a = builder.comp(a);
+        let not_a_b = builder.concat(smallvec![not_a.clone(), b.clone()]);
+
+        let th = Thompson::default();
+        let nfa = th.compile(&not_a_b, &mut builder);
+
+        assert!(nfa.accepts(&"b".into()));
+        assert!(nfa.accepts(&"abb".into()));
+
+        assert!(!nfa.accepts(&"a".into()));
+        assert!(!nfa.accepts(&"".into()));
+        assert!(!nfa.accepts(&"ab".into()));
     }
 
     #[test]
@@ -530,7 +565,7 @@ mod test {
         let re = builder.union(smallvec![rw1.clone(), rw2.clone()]);
         let th = Thompson::default();
         let nfa = th.compile(&re, &mut builder);
-        println!("{}", nfa.dot());
+
         assert!(nfa.accepts(&"f".into()));
         assert!(nfa.accepts(&"b".into()));
         assert!(!nfa.accepts(&"fb".into()));
@@ -547,6 +582,19 @@ mod test {
         } else {
             test_acceptance(&re, &mut builder, &[w1, w2], &[wneg]);
         }
+    }
+
+    #[quickcheck]
+    fn test_compile_concat_char() {
+        let mut builder = ReBuilder::default();
+        let rw1 = builder.to_re("a".into());
+        let rw2 = builder.to_re("a".into());
+        let re = builder.concat(smallvec![rw1.clone(), rw2.clone()]);
+        let th = Thompson::default();
+        let nfa = th.compile(&re, &mut builder);
+        assert!(nfa.accepts(&"aa".into()));
+        assert!(!nfa.accepts(&"a".into()));
+        assert!(!nfa.accepts(&"aaa".into()));
     }
 
     #[quickcheck]
@@ -620,6 +668,20 @@ mod test {
                 assert!(nfa.accepts(&w.repeat(i)),);
             }
         }
+        assert!(!nfa.accepts(&w.repeat(n + 1)),);
+    }
+
+    #[quickcheck]
+    fn test_compile_pow_char_rejects_longer() {
+        let w: SmtString = "a".into();
+        let n = 2;
+        let mut builder = ReBuilder::default();
+        let rw = builder.to_re(w.clone());
+        let re = builder.pow(rw, n as u32);
+
+        let th = Thompson::default();
+        let nfa = th.compile(&re, &mut builder);
+        assert!(!nfa.accepts(&w.repeat(n + 1)),);
     }
 
     #[quickcheck]
@@ -630,7 +692,9 @@ mod test {
         let rw = builder.to_re(w.clone());
         let re = builder.pow(rw, n as u32);
         let th = Thompson::default();
+
         let nfa = th.compile(&re, &mut builder);
+
         for i in 0..=n {
             if i < n && !w.is_empty() {
                 assert!(!nfa.accepts(&w.repeat(i)),);
@@ -654,10 +718,25 @@ mod test {
         let nfa = th.compile(&re, &mut builder);
         for i in 0..=u {
             if i < l {
-                println!("{}", nfa.dot());
-                assert!(!nfa.accepts(&w.repeat(i)), "{}", i);
+                assert!(
+                    !nfa.accepts(&w.repeat(i)),
+                    "loop({}, {}, {}) expected to reject {}^{}",
+                    w,
+                    l,
+                    u,
+                    w,
+                    i
+                );
             } else {
-                assert!(nfa.accepts(&w.repeat(i)), "{}", i);
+                assert!(
+                    nfa.accepts(&w.repeat(i)),
+                    "loop({}, {}, {}) accept to reject {}^{}",
+                    w,
+                    l,
+                    u,
+                    w,
+                    i
+                );
             }
         }
     }
