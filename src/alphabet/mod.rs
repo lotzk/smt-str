@@ -1,12 +1,4 @@
-//! An alphabet is finite set of symbols.
-//! In the context of SMT-LIB the alphabet are exactly the symbols with Unicode code points between 0 an 0x2FFFF.
-//! This module provides a type to represent subsets of the alphabet and utilities to work with them.
-
-mod partition;
-
-pub use partition::{AlphabetPartition, AlphabetPartitionMap};
-
-use std::{collections::BTreeSet, fmt::Display};
+pub mod partition;
 
 use crate::{CharIterator, SmtChar};
 

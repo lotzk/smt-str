@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    alphabet::{AlphabetPartitionMap, CharRange},
+    alphabet::{partition::AlphabetPartitionMap, CharRange},
     SmtChar, SmtString,
 };
 

@@ -14,7 +14,7 @@ use std::{fmt::Display, rc::Rc};
 
 pub use build::ReBuilder;
 
-use crate::alphabet::{Alphabet, AlphabetPartition, CharRange};
+use crate::alphabet::{partition::AlphabetPartition, Alphabet, CharRange};
 use crate::SmtString;
 
 pub type ReId = usize;
@@ -567,8 +567,7 @@ impl ReOp {
         match self {
             ReOp::Literal(word) => Some(word.clone()),
             ReOp::None | ReOp::Any | ReOp::All => Some(SmtString::empty()),
-            ReOp::Range(r) if r.is_singleton() => Some(r.start().into()),
-            ReOp::Range(_) => None,
+            ReOp::Range(r) => r.is_singleton().map(|c| c.into()),
             ReOp::Concat(rs) => {
                 let mut prefix = SmtString::empty();
                 if rs.is_empty() {
@@ -621,8 +620,7 @@ impl ReOp {
         match self {
             ReOp::Literal(word) => Some(word.clone()),
             ReOp::None | ReOp::Any | ReOp::All => Some(SmtString::empty()),
-            ReOp::Range(r) if r.is_singleton() => Some(r.start().into()),
-            ReOp::Range(_) => None,
+            ReOp::Range(r) => r.is_singleton().map(|c| c.into()),
             ReOp::Concat(rs) => {
                 let mut suffix = SmtString::empty();
                 if rs.is_empty() {

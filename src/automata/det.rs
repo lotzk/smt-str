@@ -9,7 +9,7 @@ use std::{
 use bit_set::BitSet;
 use indexmap::IndexMap;
 
-use crate::alphabet::AlphabetPartitionMap;
+use crate::alphabet::partition::AlphabetPartitionMap;
 
 use super::{StateId, TransitionType, NFA};
 
