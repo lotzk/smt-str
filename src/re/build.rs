@@ -163,8 +163,8 @@ impl ReBuilder {
             self.none()
         } else if r.is_full() {
             self.any_char()
-        } else if r.is_singleton() {
-            self.to_re(SmtString::from(r.start()))
+        } else if let Some(c) = r.is_singleton() {
+            self.to_re(c.into())
         } else {
             self.intern(ReOp::Range(r))
         }

@@ -179,9 +179,9 @@ mod tests {
             //CharRange::new(76887, 179877),
             //CharRange::new(142686, 186533),
             //CharRange::new(51684, 146039),
-            CharRange::new(2, 5),
-            CharRange::new(3, 6),
-            CharRange::new(1, 4),
+            CharRange::new(2u32, 5u32),
+            CharRange::new(3u32, 6u32),
+            CharRange::new(1u32, 4u32),
         ];
 
         //  CharRange  CharRange { start: SmtChar(51684), end: SmtChar(146039) }])]

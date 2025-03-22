@@ -533,9 +533,9 @@ mod test {
 
     #[test]
     fn refine_al_subsumed() {
-        let r1 = CharRange::new(2, 5);
-        let r2 = CharRange::new(3, 6);
-        let r3 = CharRange::new(1, 4);
+        let r1 = CharRange::new(2u32, 5u32);
+        let r2 = CharRange::new(3u32, 6u32);
+        let r3 = CharRange::new(1u32, 4u32);
         let mut part = AlphabetPartition::empty();
         part = part.refine(&AlphabetPartition::singleton(r1.clone()));
 
@@ -544,11 +544,11 @@ mod test {
         part = part.refine(&AlphabetPartition::singleton(r3.clone()));
 
         let mut iter = part.iter();
-        assert_eq!(iter.next(), Some(&CharRange::new(1, 1)));
-        assert_eq!(iter.next(), Some(&CharRange::new(2, 2)));
-        assert_eq!(iter.next(), Some(&CharRange::new(3, 4)));
-        assert_eq!(iter.next(), Some(&CharRange::new(5, 5)));
-        assert_eq!(iter.next(), Some(&CharRange::new(6, 6)));
+        assert_eq!(iter.next(), Some(&CharRange::new(1u32, 1u32)));
+        assert_eq!(iter.next(), Some(&CharRange::new(2u32, 2u32)));
+        assert_eq!(iter.next(), Some(&CharRange::new(3u32, 4u32)));
+        assert_eq!(iter.next(), Some(&CharRange::new(5u32, 5u32)));
+        assert_eq!(iter.next(), Some(&CharRange::new(6u32, 6u32)));
         assert_eq!(iter.next(), None);
     }
 
