@@ -10,10 +10,9 @@
 //! - **Escaping**: In SMT-LIB, the only escape sequences are of the form `\uXXXX` and `\u{X...}`.
 //!   Especially, there are no escape sequences for control characters, such as `\n` or `\t`, that are present in Rust.
 //!
-//! This crate provides a convenient way to work with SMT-LIB strings using the [SmtChar] and [SmtString] types.
-//! The `SmtChar` type represents a unicode character in the range 0x0000 to 0x2FFFF.
-//! The `SmtString` type represents a sequence of `SmtChar` characters.
-//! The crate provides methods for creating, manipulating, and inspecting SMT-LIB strings such that they conform to the SMT-LIB standard.
+//! This crate provides a convenient way to work with SMT-LIB strings through the [`SmtChar`] and [`SmtString`] types.
+//! - [`SmtChar`] represents a Unicode code point in the range 0x0000 to 0x2FFFF (including surrogates).
+//! - [`SmtString`] represents a sequence of `SmtChar` values and offers parsing, manipulation, and search utilities that conform to the SMT-LIB specification.
 
 pub mod alphabet;
 #[cfg(feature = "automata")]
@@ -24,8 +23,12 @@ pub mod re;
 #[cfg(feature = "sampling")]
 pub mod sampling;
 
-use std::{fmt::Display, ops::Index};
+use std::{
+    fmt::Display,
+    ops::{self, Index},
+};
 
+use num_traits::{SaturatingAdd, SaturatingSub};
 use quickcheck::Arbitrary;
 
 /// The maximum unicode character.
@@ -34,9 +37,38 @@ pub const SMT_MAX_CODEPOINT: u32 = 0x2FFFF;
 /// The minimum unicode character.
 pub const SMT_MIN_CODEPOINT: u32 = 0x0000;
 
-/// A unicode character in the range 0x0000 to 0x2FFFF.
-/// This type is used to represent characters in SMT-LIB strings.
-/// Internally, a `SmtChar` is represented as a `u32` unicode code point.
+/// A Unicode character used in SMT-LIB strings.
+///
+/// In the SMT-LIB string theory, a character is any Unicode code point in the inclusive range
+/// `0x0000` to `0x2FFFF`.
+///
+/// `SmtChar` is a wrapper around a `u32` and provides convenient methods to construct, inspect,
+/// and manipulate SMT-LIB characters safely.
+///
+/// ## Examples
+///
+/// ```
+/// use smt_str::SmtChar;
+///
+/// // Create a new `SmtChar` from a `u32` representing a Unicode code point.
+/// let a = SmtChar::new(0x61); // 'a'
+/// // Get the `u32` representation of the `SmtChar`.
+/// assert_eq!(a.as_u32(), 0x61);
+/// // Get the `char` representation of the `SmtChar`.
+/// assert_eq!(a.as_char(), Some('a'));
+///
+/// // It is also possible to create an `SmtChar` from a `char`.
+/// let b = SmtChar::from('b');
+/// assert_eq!(b.as_u32(), 0x62);
+/// assert_eq!(b.as_char(), Some('b'));
+///
+/// let surrogate = SmtChar::new(0xD800); // valid in SMT-LIB, invalid as Rust `char`
+/// assert_eq!(surrogate.as_char(), None);
+///
+/// // Non-printable characters are escaped when displayed.
+/// let newline = SmtChar::new(0x0A); // '\n'
+/// assert_eq!(newline.to_string(), r#"\u{A}"#);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SmtChar(u32);
 
@@ -49,24 +81,29 @@ impl SmtChar {
     /// This is the unicode code point 0x0000.
     pub const MIN: Self = Self(SMT_MIN_CODEPOINT);
 
-    /// Create a new `SmtChar` from a `char`.
-    /// Panics if the `char` is not in the range 0x0000 to 0x2FFFF.
-    pub fn new(c: char) -> Self {
-        let code = c as u32;
-        assert!(code <= 0x2FFFF, "character out of range: {}", c);
-        SmtChar(code)
+    /// Creates a new `SmtChar` from a `u32` code point.
+    /// Panics if `c as u32 > 0x2FFFF`.
+    pub fn new(c: u32) -> Self {
+        assert!(c <= 0x2FFFF, "character out of range: {}", c);
+        SmtChar(c)
+    }
+
+    /// Creates the `SmtChar` with the code point `1`.
+    fn one() -> Self {
+        SmtChar::new(1)
     }
 
     /// Get the `char` representation of this `SmtChar`, if it can be represented as a `char`.
+    /// Returns `None` if this `SmtChar` is a surrogate code point.
     ///
     ///
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// let c = SmtChar::new('a');
+    /// let c = SmtChar::from('a');
     /// assert_eq!(c.as_char(), Some('a'));
     /// // This is a surrogate code point and cannot be represented as a `char`.
-    /// assert_eq!(SmtChar::from(55296).as_char(), None);
+    /// assert_eq!(SmtChar::new(55296).as_char(), None);
     ///```
     pub fn as_char(self) -> Option<char> {
         char::from_u32(self.0)
@@ -78,81 +115,114 @@ impl SmtChar {
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// assert_eq!(SmtChar::new('a').as_u32(), 97);
-    /// assert_eq!(SmtChar::new('🦀').as_u32(), 129408);
+    /// assert_eq!(SmtChar::from('a').as_u32(), 97);
+    /// assert_eq!(SmtChar::from('🦀').as_u32(), 129408);
     /// ```
     pub fn as_u32(self) -> u32 {
         self.0
     }
 
     /// Returns the next `SmtChar` in the range 0x0000 to 0x2FFFF.
+    /// Panics if this `SmtChar` is the maximum `SmtChar`.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::from('a');
+    /// assert_eq!(c.next(), SmtChar::from('b'));
+    /// ```
+    ///
+    /// Cannot get the next character after the maximum `SmtChar`:
+    /// ```should_panic
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::MAX;
+    /// let _ = c.next(); // panics
+    /// ```
+    pub fn next(self) -> Self {
+        self + Self::one()
+    }
+
+    /// Returns the next `SmtChar` in the range 0x0000 to 0x2FFFF, if it exists.
     /// Returns `None` if this `SmtChar` is the maximum `SmtChar`.
     ///
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// let c = SmtChar::new('a');
-    /// assert_eq!(c.next(), Some(SmtChar::new('b')));
-    /// assert_eq!(SmtChar::MAX.next(), None);
+    /// let c = SmtChar::from('a');
+    /// assert_eq!(c.try_next(), Some(SmtChar::from('b')));
+    /// assert_eq!(SmtChar::MAX.try_next(), None);
     /// ```
-    pub fn next(self) -> Option<Self> {
-        if self.0 == SMT_MAX_CODEPOINT {
+    pub fn try_next(self) -> Option<Self> {
+        if self == Self::MAX {
             None
         } else {
-            Some(SmtChar(self.0 + 1))
+            Some(self.next())
         }
     }
 
-    /// Like `next`, but instead of returning `None` when this `SmtChar` is the maximum `SmtChar`, it returns the maximum `SmtChar`.
+    /// Like `next`, but instead of panicking when this `SmtChar` is the maximum `SmtChar`, it returns the maximum `SmtChar`.
     ///
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// let c = SmtChar::new('a');
-    /// assert_eq!(c.saturating_next(), SmtChar::new('b'));
+    /// let c = SmtChar::from('a');
+    /// assert_eq!(c.saturating_next(), SmtChar::from('b'));
     /// assert_eq!(SmtChar::MAX.saturating_next(), SmtChar::MAX);
     /// ```
     pub fn saturating_next(self) -> Self {
-        if self.0 == SMT_MAX_CODEPOINT {
-            SmtChar::MAX
-        } else {
-            SmtChar(self.0 + 1)
-        }
+        self.try_next().unwrap_or(Self::MAX)
     }
 
     /// Returns the previous `SmtChar` in the range 0x0000 to 0x2FFFF.
+    /// Panics if this `SmtChar` is the minimum `SmtChar`.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::from('b');
+    /// assert_eq!(c.prev(), SmtChar::from('a'));
+    /// ```
+    ///
+    /// Cannot get the previous character before the minimum `SmtChar`:
+    ///
+    /// ```should_panic
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::MIN;
+    /// let _ = c.prev(); // panics
+    /// ```
+    pub fn prev(self) -> Self {
+        self - Self::one()
+    }
+
+    /// Returns the previous `SmtChar` in the range 0x0000 to 0x2FFFF, if it exists.
     /// Returns `None` if this `SmtChar` is the minimum `SmtChar`.
     ///
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// let c = SmtChar::new('b');
-    /// assert_eq!(c.prev(), Some(SmtChar::new('a')));
-    /// assert_eq!(SmtChar::MIN.prev(), None);
+    /// let c = SmtChar::from('b');
+    /// assert_eq!(c.try_prev(), Some(SmtChar::from('a')));
+    /// assert_eq!(SmtChar::MIN.try_prev(), None);
     /// ```
-    pub fn prev(self) -> Option<Self> {
-        if self.0 == SMT_MIN_CODEPOINT {
+    pub fn try_prev(self) -> Option<Self> {
+        if self == Self::MIN {
             None
         } else {
-            Some(SmtChar(self.0 - 1))
+            Some(self.prev())
         }
     }
 
-    /// Like `prev`, but instead of returning `None` when this `SmtChar` is the minimum `SmtChar`, it returns the minimum `SmtChar`.
+    /// Like `prev`, but instead of panicking when this `SmtChar` is the minimum `SmtChar`, it returns the minimum `SmtChar`.
     ///
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// let c = SmtChar::new('b');
-    /// assert_eq!(c.saturating_prev(), SmtChar::new('a'));
+    /// let c = SmtChar::from('b');
+    /// assert_eq!(c.saturating_prev(), SmtChar::from('a'));
     /// assert_eq!(SmtChar::MIN.saturating_prev(), SmtChar::MIN);
     /// ```
     pub fn saturating_prev(self) -> Self {
-        if self.0 == SMT_MIN_CODEPOINT {
-            SmtChar::MIN
-        } else {
-            SmtChar(self.0 - 1)
-        }
+        self.try_prev().unwrap_or(Self::MIN)
     }
 
     /// Returns `true` if this `SmtChar` is a printable ASCII character.
@@ -161,8 +231,8 @@ impl SmtChar {
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// assert!(SmtChar::new('a').printable());
-    /// assert!(!SmtChar::new('\n').printable());
+    /// assert!(SmtChar::from('a').printable());
+    /// assert!(!SmtChar::from('\n').printable());
     /// ```
     pub fn printable(self) -> bool {
         0x00020 <= self.0 && self.0 < 0x0007E
@@ -175,9 +245,9 @@ impl SmtChar {
     /// # Examples
     /// ```
     /// use smt_str::SmtChar;
-    /// assert_eq!(SmtChar::new('a').escape(), r#"\u{61}"#);
-    /// assert_eq!(SmtChar::new('\n').escape(), r#"\u{A}"#);
-    /// assert_eq!(SmtChar::new('🦀').escape(), r#"\u{1F980}"#);
+    /// assert_eq!(SmtChar::from('a').escape(), r#"\u{61}"#);
+    /// assert_eq!(SmtChar::from('\n').escape(), r#"\u{A}"#);
+    /// assert_eq!(SmtChar::from('🦀').escape(), r#"\u{1F980}"#);
     /// assert_eq!(SmtChar::MAX.escape(), r#"\u{2FFFF}"#);
     /// assert_eq!(SmtChar::MIN.escape(), r#"\u{0}"#);
     ///
@@ -200,10 +270,26 @@ impl SmtChar {
     /// - `\u{DD}`,
     /// - `\u{DDD}`,
     /// - `\u{DDDD}`,
-    /// - `\u{D'DDDD}`
+    /// - `\u{DDDDD}`
     ///
-    /// where `D` is a hexadecimal digit and `D'` is a hexadecimal digit in the range 0 to 2.
+    /// where `D` is a hexadecimal digit. In the case `\u{DDDDD}`, the first digit must be in the range 0 to 2.
     /// The function returns `None` if the input string is not a valid escaped character.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// assert_eq!(SmtChar::unescape(r#"\u{61}"#), Some(SmtChar::from('a')));
+    /// assert_eq!(SmtChar::unescape(r#"\u{A}"#), Some(SmtChar::from('\n')));
+    /// assert_eq!(SmtChar::unescape(r#"\u{1F980}"#), Some(SmtChar::from('🦀')));
+    /// assert_eq!(SmtChar::unescape(r#"\u{2FFFF}"#), Some(SmtChar::MAX));
+    /// assert_eq!(SmtChar::unescape(r#"\u{0}"#), Some(SmtChar::MIN));
+    ///
+    /// // Invalid escape sequences
+    ///
+    /// assert_eq!(SmtChar::unescape(r#"\u{3000A}"#), None); // out of range
+    /// assert_eq!(SmtChar::unescape(r#"\u{61"#), None); // missing closing brace
+    /// assert_eq!(SmtChar::unescape(r#"\u{}"#), None); // empty digits
+    /// ```
     pub fn unescape(escaped: &str) -> Option<Self> {
         let mut chars = escaped.chars();
         if chars.next()? != '\\' {
@@ -250,20 +336,137 @@ impl SmtChar {
     }
 }
 
-impl From<char> for SmtChar {
-    fn from(c: char) -> Self {
-        SmtChar::new(c)
+/* Conversion from primitives */
+
+impl From<u8> for SmtChar {
+    fn from(c: u8) -> Self {
+        SmtChar::new(c as u32)
+    }
+}
+
+impl From<u16> for SmtChar {
+    fn from(c: u16) -> Self {
+        SmtChar::new(c as u32)
     }
 }
 
 impl From<u32> for SmtChar {
     fn from(c: u32) -> Self {
-        assert!(c <= SMT_MAX_CODEPOINT, "character out of range: {}", c);
-        SmtChar(c)
+        SmtChar::new(c)
+    }
+}
+
+impl From<i32> for SmtChar {
+    fn from(c: i32) -> Self {
+        if c < 0 {
+            panic!("negative character: {}", c);
+        }
+        SmtChar::new(c as u32)
+    }
+}
+
+impl From<char> for SmtChar {
+    fn from(c: char) -> Self {
+        SmtChar::new(c as u32)
+    }
+}
+
+/* Operations */
+
+impl ops::Add<SmtChar> for SmtChar {
+    type Output = SmtChar;
+    /// Adds another `SmtChar` to this `SmtChar`, shifting the unicode code point.
+    /// The sum is the sum of the unicode code points of the two `SmtChar`s.
+    /// Panics if the resulting code point is greater than [SMT_MAX_CODEPOINT] (= `0x2FFFF`).
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::from('a');
+    /// assert_eq!(c + SmtChar::new(1), SmtChar::from('b'));
+    /// assert_eq!(c + SmtChar::new(25), SmtChar::from('z'));
+    /// ```
+    ///
+    /// Overflowing the maximum code point panics:
+    ///
+    /// ```should_panic
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::MAX;
+    /// let _ = c + SmtChar::new(1); // panics
+    /// ```
+    fn add(self, rhs: SmtChar) -> Self::Output {
+        SmtChar::new(self.0 + rhs.0)
+    }
+}
+
+impl SaturatingAdd for SmtChar {
+    /// Adds another `SmtChar` to this `SmtChar`, saturating at the maximum unicode code point.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// use num_traits::ops::saturating::SaturatingAdd;
+    /// let c = SmtChar::from('a');
+    /// assert_eq!(c.saturating_add(&SmtChar::new(1)), SmtChar::from('b'));
+    /// assert_eq!(c.saturating_add(&SmtChar::new(25)), SmtChar::from('z'));
+    /// let c = SmtChar::MAX;
+    /// assert_eq!(c.saturating_add(&SmtChar::new(1)), SmtChar::MAX);
+    /// ```
+    fn saturating_add(&self, v: &Self) -> Self {
+        let sum = (self.0 + v.0).min(SMT_MAX_CODEPOINT);
+        SmtChar::new(sum)
+    }
+}
+
+impl ops::Sub<SmtChar> for SmtChar {
+    type Output = SmtChar;
+    /// Subtracts another `SmtChar` from this `SmtChar`, shifting the unicode code point.
+    /// The difference is the difference of the unicode code points of the two `SmtChar`s.
+    /// Panics if the resulting code point is less than [SMT_MIN_CODEPOINT] (= `0`).
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::from('z');
+    /// assert_eq!(c - SmtChar::new(1), SmtChar::from('y'));
+    /// assert_eq!(c - SmtChar::new(25), SmtChar::from('a'));
+    /// ```
+    ///
+    /// Underflowing the minimum code point panics:
+    ///
+    /// ```should_panic
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::MIN;
+    /// let _ = c - SmtChar::new(1); // panics
+    /// ```
+    fn sub(self, rhs: SmtChar) -> Self::Output {
+        SmtChar::new(self.0 - rhs.0)
+    }
+}
+
+impl SaturatingSub for SmtChar {
+    /// Subtracts another `SmtChar` from this `SmtChar`, saturating at the minimum unicode code point.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::SmtChar;
+    /// let c = SmtChar::from('z');
+    /// use num_traits::ops::saturating::SaturatingSub;
+    /// assert_eq!(c.saturating_sub(&SmtChar::new(1)), SmtChar::from('y'));
+    /// assert_eq!(c.saturating_sub(&SmtChar::new(25)), SmtChar::from('a'));
+    /// let c = SmtChar::MIN;
+    /// assert_eq!(c.saturating_sub(&SmtChar::new(1)), SmtChar::MIN);
+    /// ```
+    fn saturating_sub(&self, v: &Self) -> Self {
+        let diff = self.0.saturating_sub(v.0);
+        SmtChar::new(diff)
     }
 }
 
 impl Display for SmtChar {
+    /// Display the `SmtChar` as a Unicode character if it is printable.
+    /// Otherwise, display the character as a Unicode escape sequence (see [SmtChar::escape]).
+    /// Additionally, backslashes and quotes are escaped.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.printable() {
             // printable ASCII character are always safe to unwrap
@@ -302,7 +505,7 @@ impl Iterator for CharIterator {
     fn next(&mut self) -> Option<Self::Item> {
         if self.current <= self.end {
             let c = self.current;
-            self.current = self.current.next()?;
+            self.current = self.current.try_next()?;
             Some(c)
         } else {
             None
@@ -310,9 +513,36 @@ impl Iterator for CharIterator {
     }
 }
 
-/// An SMT-LIB string.
-/// An SMT-LIB string is a sequence of [SmtChar] characters.
-/// The empty string is represented by an empty vector.
+/// An SMT-LIB string is a sequence of characters with unicode code points in the range 0x0000 to 0x2FFFF (first two planes of Unicode).
+/// The characters are represented by the [`SmtChar`] type.
+///
+/// # Examples
+/// ```
+/// use smt_str::{SmtString, SmtChar};
+///
+/// // Create a new SmtString from a string literal
+/// let s: SmtString = "foo".into();
+///
+/// // Obtain the length of the string
+/// assert_eq!(s.len(), 3);
+///
+/// // SmtStrings have the correct length even for multi-byte characters
+/// let s: SmtString = "🦀".into();
+/// assert_eq!(s.len(), 1);
+///
+/// // In Rust, the length of a string is counted in bytes, not characters
+/// assert_eq!("🦀".len(), 4);
+/// assert_eq!("🦀".chars().count(), 1);
+///
+/// // SmtString can be parsed from a string with escape sequences
+/// let s: SmtString = SmtString::parse(r#"foo\u{61}bar"#);
+/// assert_eq!(s, SmtString::from("fooabar"));
+///
+/// // Printing the string escapes non-printable characters
+/// let s: SmtString = SmtString::from("foo\nbar");
+/// assert_eq!(s.to_string(), r#"foo\u{A}bar"#);
+///
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SmtString(Vec<SmtChar>);
 
@@ -345,6 +575,18 @@ impl SmtString {
     /// But the string `"foo\u{61bar"` is parsed as the string `"foo\u{61bar"`.
     /// The holds for syntactically valid escape sequences that result in code points outside the valid range.
     /// For example, the string `"foo\u{3000A}bar"` is parsed as the string `"foo\u{3000A}bar"`, since the code point `0x3000A` is outside the valid range.
+    ///
+    /// # Examples
+    /// ```
+    /// use smt_str::{SmtString};
+    /// let s: SmtString = SmtString::parse(r#"foo\u{61}bar"#);
+    /// assert_eq!(s, SmtString::from("fooabar"));
+    ///
+    /// // Invalid escape sequence, treated as literal
+    ///
+    /// let s: SmtString = SmtString::parse(r#"foo\u{61bar"#);
+    /// assert_eq!(s, SmtString::from(r#"foo\u{61bar"#));
+    /// ```
     pub fn parse(input: &str) -> Self {
         let mut chars = input.chars().peekable();
         let mut result = Vec::new();
@@ -430,12 +672,12 @@ impl SmtString {
     /// let other: SmtString = "bar".into();
     /// s.append(&other);
     /// let mut iter = s.iter();
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('f')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('b')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('a')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('r')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('f')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('o')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('o')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('b')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('a')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('r')));
     /// assert_eq!(iter.next(), None);
     /// ```
     pub fn append(&mut self, other: &SmtString) {
@@ -448,9 +690,9 @@ impl SmtString {
     /// ```
     /// use smt_str::{SmtString, SmtChar};
     /// let mut s = SmtString::empty();
-    /// s.push(SmtChar::new('f'));
-    /// s.push(SmtChar::new('o'));
-    /// s.push(SmtChar::new('o'));
+    /// s.push(SmtChar::from('f'));
+    /// s.push(SmtChar::from('o'));
+    /// s.push(SmtChar::from('o'));
     /// assert_eq!(s, SmtString::from("foo"));  
     /// ```
     pub fn push(&mut self, c: impl Into<SmtChar>) {
@@ -481,10 +723,10 @@ impl SmtString {
     /// ```
     /// use smt_str::{SmtString, SmtChar};
     /// let s: SmtString = "foobar".into();
-    /// assert!(s.contains_char(SmtChar::new('f')));
-    /// assert!(s.contains_char(SmtChar::new('o')));
-    /// assert!(s.contains_char(SmtChar::new('b')));
-    /// assert!(!s.contains_char(SmtChar::new('z')));
+    /// assert!(s.contains_char('f'));
+    /// assert!(s.contains_char('o'));
+    /// assert!(s.contains_char('b'));
+    /// assert!(!s.contains_char('z'));
     /// ```
     pub fn contains_char(&self, c: impl Into<SmtChar>) -> bool {
         self.0.contains(&c.into())
@@ -577,7 +819,7 @@ impl SmtString {
     /// ```
     /// use smt_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
-    /// assert_eq!(s.first(), Some(SmtChar::new('f')));
+    /// assert_eq!(s.first(), Some('f'.into()));
     /// assert_eq!(SmtString::empty().first(), None);
     /// ```
     pub fn first(&self) -> Option<SmtChar> {
@@ -591,7 +833,7 @@ impl SmtString {
     /// ```
     /// use smt_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
-    /// assert_eq!(s.last(), Some(SmtChar::new('o')));
+    /// assert_eq!(s.last(), Some('o'.into()));
     /// assert_eq!(SmtString::empty().last(), None);
     /// ```
     pub fn last(&self) -> Option<SmtChar> {
@@ -639,9 +881,9 @@ impl SmtString {
     /// ```
     /// use smt_str::{SmtString, SmtChar};
     /// let s: SmtString = "foo".into();
-    /// assert_eq!(s.nth(0), Some(SmtChar::new('f')));
-    /// assert_eq!(s.nth(1), Some(SmtChar::new('o')));
-    /// assert_eq!(s.nth(2), Some(SmtChar::new('o')));
+    /// assert_eq!(s.nth(0), Some(SmtChar::from('f')));
+    /// assert_eq!(s.nth(1), Some(SmtChar::from('o')));
+    /// assert_eq!(s.nth(2), Some(SmtChar::from('o')));
     /// assert_eq!(s.nth(3), None);
     /// ```
     pub fn nth(&self, n: usize) -> Option<SmtChar> {
@@ -656,9 +898,9 @@ impl SmtString {
     /// let s: SmtString = "foo".into();
     /// let rev = s.reversed();
     /// let mut iter = rev.iter();
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('o')));
-    /// assert_eq!(iter.next(), Some(&SmtChar::new('f')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('o')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('o')));
+    /// assert_eq!(iter.next(), Some(&SmtChar::from('f')));
     /// assert_eq!(iter.next(), None);
     /// ```
     pub fn reversed(&self) -> Self {
@@ -748,6 +990,8 @@ impl SmtString {
     }
 }
 
+/* Conversions */
+
 impl FromIterator<SmtChar> for SmtString {
     fn from_iter<I: IntoIterator<Item = SmtChar>>(iter: I) -> Self {
         SmtString(iter.into_iter().collect())
@@ -763,13 +1007,13 @@ impl FromIterator<SmtString> for SmtString {
 
 impl From<&str> for SmtString {
     fn from(s: &str) -> Self {
-        SmtString(s.chars().map(SmtChar::new).collect())
+        SmtString(s.chars().map(SmtChar::from).collect())
     }
 }
 
 impl From<String> for SmtString {
     fn from(s: String) -> Self {
-        SmtString(s.chars().map(SmtChar::new).collect())
+        SmtString::from(s.as_str())
     }
 }
 
@@ -826,8 +1070,8 @@ mod tests {
         if s == SmtChar::MAX {
             return TestResult::discard();
         }
-        let next = s.next().unwrap();
-        assert_eq!(next.prev(), Some(s));
+        let next = s.next();
+        assert_eq!(next.prev(), s);
         TestResult::passed()
     }
 
@@ -836,9 +1080,21 @@ mod tests {
         if s == SmtChar::MIN {
             return TestResult::discard();
         }
-        let prev = s.prev().unwrap();
-        assert_eq!(prev.next(), Some(s));
+        let prev = s.prev();
+        assert_eq!(prev.next(), s);
         TestResult::passed()
+    }
+
+    #[test]
+    #[should_panic]
+    fn next_past_max() {
+        SmtChar::MAX.next();
+    }
+
+    #[test]
+    #[should_panic]
+    fn prev_past_min() {
+        SmtChar::MIN.prev();
     }
 
     #[test]
@@ -889,8 +1145,8 @@ mod tests {
     }
 
     #[quickcheck]
-    fn test_escape_unescape_inverse(c: char) -> TestResult {
-        if c as u32 > SMT_MAX_CODEPOINT {
+    fn test_escape_unescape_inverse(c: u32) -> TestResult {
+        if c > SMT_MAX_CODEPOINT {
             return TestResult::discard();
         }
         let smt_char = SmtChar::new(c);
@@ -1001,32 +1257,32 @@ mod tests {
     fn test_parse_invalid_escape_sequences() {
         // Missing closing brace
         let s = r#"\u{123"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
 
         // Non-hex character in escape sequence
         let s = r#"\u{12G3}"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
 
         // Escape sequence too long
         let s = r#"\u{123456}"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
 
         // Escape sequence without digits
         let s = r#"\u{}"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
 
         // Invalid escape sequence (SMT 2.5 style)
         let s = r#"\x1234"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
 
         // Unicode above allowed SMT max
         let s = r#"\u{110000}"#;
-        let expected = SmtString::new(s.chars().map(SmtChar::new).collect());
+        let expected = SmtString::new(s.chars().map(SmtChar::from).collect());
         assert_eq!(SmtString::parse(s), expected);
     }
 
