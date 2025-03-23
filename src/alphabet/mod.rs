@@ -6,32 +6,32 @@
 //! An [`Alphabet`] is a set of `CharRange`s, representing the union of all characters in the ranges.
 //!
 //! ```rust
-//! use smtlib_str::alphabet::{CharRange, Alphabet};
+//! use smt_str::alphabet::{CharRange, Alphabet};
 //!
 //! // This range contains all characters from 'a' to 'z' inclusive
 //! let alpha = CharRange::new('a', 'z');
-//! assert_eq!(alpha.size(), 26);
+//! assert_eq!(alpha.len(), 26);
 //! assert!(alpha.contains('a'));
 //! assert!(alpha.contains('z'));
 //! assert!(!alpha.contains('A'));
 //!
 //! // This range contains all character from '0' to '9' inclusive
 //! let digits = CharRange::new('0', '9');
-//! assert_eq!(digits.size(), 10);
+//! assert_eq!(digits.len(), 10);
 //! assert!(digits.contains('0'));
 //! assert!(digits.contains('9'));
 //! assert!(!digits.contains('a'));
 //!
 //! // The union of the two ranges is an alphabet that contains all lowercase letters and digits
 //!
-//! let mut alpha = Alphabet::default();
-//! alpha.insert(alpha);
-//! alpha.insert(digits);
-//! assert_eq!(alpha.len(), 36);
-//! assert!(alpha.contains('a'));
-//! assert!(alpha.contains('z'));
-//! assert!(alpha.contains('0'));
-//! assert!(alpha.contains('9'));
+//! let mut alphabet = Alphabet::default();
+//! alphabet.insert(alpha);
+//! alphabet.insert(digits);
+//! assert_eq!(alphabet.len(), 36);
+//! assert!(alphabet.contains('a'));
+//! assert!(alphabet.contains('z'));
+//! assert!(alphabet.contains('0'));
+//! assert!(alphabet.contains('9'));
 //! ```
 //!
 //! The [`Alphabet`] provides operations supports operations such as union, intersection, and complement. The type always maintains the most compact representation of the alphabet, i.e., it
@@ -802,9 +802,7 @@ impl Alphabet {
                 }
             }
         }
-        Alphabet {
-            ranges: result.into(),
-        }
+        Alphabet { ranges: result }
     }
 
     /// Computes the complement of the alphabet with respect to the full SMT-LIB character set.

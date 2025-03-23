@@ -1,3 +1,29 @@
+//! This module defines types for partitioning the SMT-LIB alphabet.
+//!
+//! Unlike [`Alphabet`], ranges are not compacted and can be adjacent.
+//!
+//! ## Types
+//!
+//! - [`AlphabetPartition`] represents a finite partition of the SMT-LIB alphabet into non-overlapping [`CharRange`]s.
+//! - [`AlphabetPartitionMap<T>`] extends this with values of type `T` associated to each range.
+//!
+//!
+//! ## Refinement
+//!
+//! Both struct provide a partition refinement operation.
+//! Given two partitions `P` and `Q`, the **refinement** of `P` w.r.t. `P` is a
+//! partitioning `R` that is the set of all non-empty intersections
+//!
+//! - `p ∩ q` for all `p ∈ P` and `q ∈ Q`.  
+//! - `p' ∩ q` for all `p' ∈ comp(P)` and `q ∈ Q`.  
+//! - `p ∩ q'` for all `p ∈ P` and `q' ∈ comp(Q)`.
+//!
+//! where `comp(P)` and `comp(Q)` are the complements of `P` and `Q`, respectively.
+//! The resulting ranges in `R` are disjoint, ordered, and their union is equal to the union of `P ∪ Q`.
+//!
+//! In other words, refinement splits ranges in `P` and `Q` as needed so that the resulting partition `R` respects the boundaries of both.
+//!
+//! For `AlphabetPartitionMap<T>`, the refinement operation also combines the values from both input partitions using a user-provided function `f: T × T -> T`, applied to the values associated with intersecting ranges.
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::Display,
@@ -5,8 +31,20 @@ use std::{
 
 use super::CharRange;
 
-/// Represents a partitioning of an alphabet into non-overlapping partitions, each represented by a [CharRange].
-/// In difference to [Alphabet], the partitioning does not enforce that the partitions are non-adjacent.
+/// A partitioning of the SMT-LIB alphabet into disjoint character ranges without associated values.
+///
+/// This is a convenience wrapper around [`AlphabetPartitionMap<()>`] for value-less partitioning.
+/// See the module-level documentation for details.
+///
+/// # Example
+/// ```
+/// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
+///
+/// let mut p = AlphabetPartition::default();
+/// p.insert(CharRange::new('a', 'z')).unwrap();
+///
+/// assert_eq!(p.len(), 1);
+/// ```
 #[derive(Clone, Default, Debug)]
 pub struct AlphabetPartition {
     map: AlphabetPartitionMap<()>,
@@ -23,7 +61,7 @@ impl AlphabetPartition {
     /// Creates a partitioning with a single range.
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartition::singleton(range.clone());
@@ -36,20 +74,18 @@ impl AlphabetPartition {
     }
 
     /// Inserts the given character range into the partitioning.
-    /// Checks if the range can be inserted into the partitioning without overlapping with existing partitions.
-    /// If the range can be inserted, it is inserted and `Ok(())` is returned.
-    /// If the range overlaps with an existing partition `r``, the range is returned in `Err(r)`.
-    /// This needs O(n) time, where n is the number of partitions in the partitioning.
-    /// If the range is known to not overlap with any existing partition, `insert_unchecked` can be used, which is faster.
     ///
-    /// # Arguments
+    /// This method checks whether the given range overlaps with any existing partition.  
+    /// If it does not, the range is inserted and `Ok(())` is returned.  
+    /// If it overlaps with an existing partition, the insertion is rejected and the overlapping range is returned in `Err(...)`.
     ///
-    /// * `range` - The character range to insert.
+    /// This operation takes O(n) time, where `n` is the number of ranges in the partition.  
+    /// If the caller can guarantee that the range does not overlap, use [`insert_unchecked`](Self::insert_unchecked) for improved performance.
     ///
     /// # Examples
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     ///
@@ -59,7 +95,8 @@ impl AlphabetPartition {
     /// assert!(partitioning.contains(&range));
     ///
     /// // Insert an overlapping range
-    /// assert_eq!(partitioning.insert(CharRange::new('m', 'p')), Err(CharRange::new('a', 'z')));
+    /// let overlapping = CharRange::new('m', 'p');
+    /// assert_eq!(partitioning.insert(overlapping), Err(CharRange::new('a', 'z')));
     /// ```
     pub fn insert(&mut self, range: CharRange) -> Result<(), CharRange> {
         self.map.insert(range, ())
@@ -70,15 +107,10 @@ impl AlphabetPartition {
     ///
     /// This method must be used with caution, as it can lead to an invalid partitioning if the range overlaps with an existing partition.
     ///
-    /// # Arguments
-    ///
-    /// * `range` - The character range to insert.
-    /// * `v` - The value associated with the character range.
-    ///
     /// # Examples
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
     ///
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'));
@@ -87,27 +119,27 @@ impl AlphabetPartition {
     /// // This will lead to an invalid partitioning
     /// partitioning.insert_unchecked(CharRange::new('m','p'));
     /// assert!(partitioning.contains(&CharRange::new('m','p')));
+    /// assert!(!partitioning.valid());
     /// ```
     pub fn insert_unchecked(&mut self, range: CharRange) {
         self.map.insert_unchecked(range, ());
     }
 
-    /// Returns whether the partitioning contains the given character range.
-    /// Does not check for subranges.
-    ///
-    /// # Arguments
-    /// - `range` - The character range to check for.
+    /// Returns `true` if the given character range is explicitly contained in the partitioning.
+    /// This method checks for the presence of the exact range, not subranges.
     ///
     /// # Examples
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let mut partitioning = AlphabetPartition::empty();
     /// partitioning.insert_unchecked(range.clone());
+    ///
     /// assert!(partitioning.contains(&range));
-    /// // subranges are not contained
+    ///
+    /// // Subranges are not considered present
     /// assert!(!partitioning.contains(&CharRange::new('a', 'y')));
     /// ```
     pub fn contains(&self, range: &CharRange) -> bool {
@@ -125,44 +157,39 @@ impl AlphabetPartition {
     }
 
     /// Removes the given character range from the partitioning.
-    /// Only works if this exact range is in the partitioning.
-    /// Returns true if the range was removed, false otherwise.
     ///
-    /// # Arguments
-    /// - `range` - The character range to remove.
+    /// Only removes the range if it exactly matches a partition in the set.  
+    /// Returns `true` if the range was removed, and `false` if it was not present.
+    ///
     ///
     /// # Examples
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
+    ///
     /// let mut partitioning = AlphabetPartition::empty();
-    /// partitioning.insert_unchecked(CharRange::new('a','z'));
+    /// partitioning.insert_unchecked(CharRange::new('a', 'z'));
     ///
-    /// assert!(partitioning.contains(&CharRange::new('a','z')));
-    /// // We cannot remove "subranges"
-    /// assert!(!partitioning.remove(CharRange::new('a','m')));
+    /// assert!(partitioning.contains(&CharRange::new('a', 'z')));
     ///
-    /// assert!(partitioning.remove(CharRange::new('a','z')));
-    /// assert!(!partitioning.contains(&CharRange::new('a','z')));
+    /// // Subranges are not considered matches
+    /// assert!(!partitioning.remove(CharRange::new('a', 'm')));
+    ///
+    /// // Exact match is required
+    /// assert!(partitioning.remove(CharRange::new('a', 'z')));
+    /// assert!(!partitioning.contains(&CharRange::new('a', 'z')));
+    /// ```
     pub fn remove(&mut self, range: CharRange) -> bool {
         self.map.remove(range).is_some()
     }
 
     /// Performs a partition refinement of this partitioning with the given partitioning.
-    /// Let $P$ be this partitioning, $Q$  be the other partitioning.
-    /// Then, for all partitions $p$ in $P$ or $Q$, there are ranges 'r1', ..., 'rn' in the refined partitioning such that:
-    /// - $p = r_1 \cup ... \cup r_n$
-    /// - $r_i \leq r_{i+1}$ for all $1 \leq i \le n$
-    /// - For all $r_j$ with  $r_i \leq r_j \leq r_{i+1}$ either $ri = rj$ or $r_{i+1} = rj$
-    ///
-    /// # Arguments
-    ///
-    /// * `other` - The partitioning to refine with.
+    /// See module-level documentation and [`AlphabetPartitionMap::refine`] for details.
     ///
     /// # Examples
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartition, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
     ///
     /// let mut partitioning1 = AlphabetPartition::empty();
     /// partitioning1.insert_unchecked(CharRange::new('a', 'z'));
@@ -181,14 +208,43 @@ impl AlphabetPartition {
         Self { map }
     }
 
-    /// Returns an iterator over the partitions in the partitioning.
+    /// Returns an iterator over the character ranges in the partitioning.
+    ///
+    /// The iterator yields each [`CharRange`] in the partitioning, in sorted order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
+    ///
+    /// let mut partitioning = AlphabetPartition::empty();
+    /// partitioning.insert_unchecked(CharRange::new('a', 'b'));
+    /// partitioning.insert_unchecked(CharRange::new('x', 'z'));
+    ///
+    /// let mut iter = partitioning.iter();
+    /// assert_eq!(iter.next(), Some(&CharRange::new('a', 'b')));
+    /// assert_eq!(iter.next(), Some(&CharRange::new('x', 'z')));
+    /// assert_eq!(iter.next(), None);
+    /// ```
     pub fn iter(&self) -> impl Iterator<Item = &CharRange> + '_ {
         self.map.iter().map(|(r, _)| r)
     }
 
-    /// Returns an iterator over the partitions in the partitioning with a mutable reference to the values.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &CharRange> + '_ {
-        self.map.iter_mut().map(|(r, _)| r)
+    /// Returns `true` if the partitioning is valid, i.e., if no two character ranges overlap.
+    /// This property holds as long as `insert_unchecked` is not used to insert overlapping ranges.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartition, CharRange};
+    /// let mut p = AlphabetPartition::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'f'));
+    /// p.insert_unchecked(CharRange::new('g', 'z'));
+    /// assert!(p.valid());
+    /// p.insert_unchecked(CharRange::new('e', 'h'));
+    /// assert!(!p.valid());
+    ///
+    pub fn valid(&self) -> bool {
+        self.map.valid()
     }
 }
 
@@ -205,9 +261,21 @@ impl Display for AlphabetPartition {
     }
 }
 
-/// Represents a partitioning of an alphabet into non-overlapping partitions, each represented by a [CharRange].
-/// In difference to [Alphabet], the partitioning does not enforce that the partitions are non-adjacent.
-/// Additionally, each partition is associated with a value of type `T`.
+/// A partitioning of the SMT-LIB alphabet into disjoint character ranges, each associated with a value of type `T`.
+///
+/// See the module-level documentation for details.
+///
+/// /// # Example
+/// ```
+/// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+///
+/// let mut p = AlphabetPartitionMap::empty();
+/// p.insert(CharRange::new('a', 'f'), 1).unwrap();
+/// p.insert(CharRange::new('g', 'z'), 2).unwrap();
+///
+/// assert_eq!(p.len(), 2);
+/// assert_eq!(p.get(&CharRange::new('a', 'f')), Some(&1));
+/// ```
 #[derive(Clone, Default, Debug)]
 pub struct AlphabetPartitionMap<T: Clone> {
     /// The character ranges in the partitioning and the associated values.
@@ -216,18 +284,28 @@ pub struct AlphabetPartitionMap<T: Clone> {
 }
 
 impl<T: Clone> AlphabetPartitionMap<T> {
-    /// Creates an empty map.
+    /// Creates a new, empty partitioning.
+    ///
+    /// The resulting partitioning contains no character ranges.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::partition::AlphabetPartitionMap;
+    /// let p: AlphabetPartitionMap<i32> = AlphabetPartitionMap::empty();
+    /// assert!(p.is_empty());
+    /// assert_eq!(p.len(), 0);
+    /// ```
     pub fn empty() -> Self {
         Self {
             parts: BTreeMap::new(),
         }
     }
 
-    /// Creates a map  with a single range.
-    /// The range is associated with the given value.
+    /// Creates a partitioning map containing a single character range with the given associated value.
     ///
+    /// # Example
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
     ///
     /// let range = CharRange::new('a', 'z');
     /// let partitioning = AlphabetPartitionMap::singleton(range.clone(), 1);
@@ -239,17 +317,18 @@ impl<T: Clone> AlphabetPartitionMap<T> {
         Self { parts }
     }
 
-    /// Inserts the given character range and the associated value into the partitioning.
-    /// Checks if the range can be inserted into the partitioning without overlapping with existing partitions.
-    /// If the range can be inserted, it is inserted and `Ok(())` is returned.
-    /// If the range overlaps with an existing partition `r``, the range is returned in `Err(r)`.
-    /// This needs O(n) time, where n is the number of partitions in the partitioning.
-    /// If the range is known to not overlap with any existing partition, `insert_unchecked` can be used, which is faster.
+    /// Attempts to insert a character range with an associated value into the partitioning.
     ///
-    /// # Examples
+    /// This method checks whether the given range overlaps with any existing range in the partitioning.
+    /// If there is no overlap, the range is inserted and `Ok(())` is returned.
+    /// If the range overlaps with an existing partition, insertion is rejected and the conflicting range is returned in `Err`.
     ///
+    /// This operation runs in **O(n + log n)** time, where `n` is the number of partitions.
+    /// If overlap checks are not necessary, use [`insert_unchecked`](Self::insert_unchecked) for faster insertion.
+    ///
+    /// # Example
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     ///
@@ -257,8 +336,11 @@ impl<T: Clone> AlphabetPartitionMap<T> {
     /// assert_eq!(partitioning.insert(range.clone(), 1), Ok(()));
     /// assert_eq!(partitioning.get(&range), Some(&1));
     ///
-    /// // Insert an overlapping range
-    /// assert_eq!(partitioning.insert(CharRange::new('m', 'p'), 1), Err(CharRange::new('a', 'z')));
+    /// // Overlapping range cannot be inserted
+    /// assert_eq!(
+    ///     partitioning.insert(CharRange::new('m', 'p'), 1),
+    ///     Err(CharRange::new('a', 'z'))
+    /// );
     /// ```
     pub fn insert(&mut self, range: CharRange, v: T) -> Result<(), CharRange> {
         match self.overlaps(range) {
@@ -270,52 +352,76 @@ impl<T: Clone> AlphabetPartitionMap<T> {
         }
     }
 
-    /// Inserts the given character range and its associated value into the partitioning, without checking for overlaps with existing ranges.
-    /// Takes O(log n) time, where n is the number of partitions in the partitioning.
+    /// Inserts a character range with its associated value into the partitioning **without** checking for overlaps.
     ///
-    /// This method can lead to an invalid partitioning if the range overlaps with an existing partition.
+    /// This method assumes that the given range does not overlap with any existing partition.
+    /// If this assumption is violated, the internal becomes invalid.
     ///
-    /// # Examples
+    /// Runs in **O(log n)** time, where `n` is the number of existing partitions.
     ///
+    /// Use this method only when you are certain that the inserted range does not conflict with existing ones.
+    /// For safe insertion with overlap checks, use [`insert`](Self::insert).
+    ///
+    /// # Example
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
     ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
     /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
     /// assert_eq!(partitioning.get(&CharRange::new('a','z')), Some(&0));
     ///
-    /// // This will lead to an invalid partitioning
+    /// // Overlapping insertion is allowed, but the partitioning becomes invalid
     /// partitioning.insert_unchecked(CharRange::new('m','p'), 1);
     /// assert_eq!(partitioning.get(&CharRange::new('m','p')), Some(&1));
+    /// assert!(!partitioning.valid());
     /// ```
     pub fn insert_unchecked(&mut self, range: CharRange, v: T) {
         self.parts.insert(range, v);
     }
 
-    /// Returns the value associated with the given character range, if it exists. Returns `None` otherwise.
+    /// Returns a reference to the value associated with the given character range, if it exists.
+    ///
+    /// Only exact matches are returned.
+    /// That is, the given range must match a range in the map exactly.
+    ///
+    /// Runs in **O(log n)** time, where `n` is the number of stored partitions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut partitioning = AlphabetPartitionMap::empty();
+    /// let range = CharRange::new('a', 'z');
+    /// partitioning.insert_unchecked(range, 42);
+    ///
+    /// assert_eq!(partitioning.get(&CharRange::new('a', 'z')), Some(&42));
+    /// assert_eq!(partitioning.get(&CharRange::new('a', 'm')), None); // no partial match
+    /// ```
     pub fn get(&self, range: &CharRange) -> Option<&T> {
         self.parts.get(range)
     }
 
-    /// Removes the given character range from the partitioning.
-    /// Only works if this exact range is in the partitioning.
+    /// Removes the given range from the partitioning.
     ///
-    /// # Arguments
-    /// - `range` - The character range to remove.
+    /// Only removes ranges that exactly match an existing partition. Subranges or overlapping ranges will not be removed.
+    ///
+    /// Returns the associated value if the range was present, or `None` otherwise.
+    ///
+    /// Runs in **O(log n)** time, where `n` is the number of partitions.
     ///
     /// # Examples
-    ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
     /// let mut partitioning = AlphabetPartitionMap::empty();
-    /// partitioning.insert_unchecked(CharRange::new('a','z'), 0);
-    /// assert_eq!(partitioning.get(&CharRange::new('a','z')), Some(&0));
+    /// partitioning.insert_unchecked(CharRange::new('a', 'z'), 0);
     ///
-    /// // We cannot remove "subranges"
-    /// assert_eq!(partitioning.remove(CharRange::new('a','m')), None);
+    /// // Exact match can be removed
+    /// assert_eq!(partitioning.remove(CharRange::new('a', 'z')), Some(0));
     ///
-    /// assert_eq!(partitioning.remove(CharRange::new('a','z')), Some(0));
-    /// assert_eq!(partitioning.get(&CharRange::new('a','z')), None);
+    /// // Subrange does not match exactly
+    /// assert_eq!(partitioning.remove(CharRange::new('a', 'm')), None);
+    /// ```
     pub fn remove(&mut self, range: CharRange) -> Option<T> {
         self.parts.remove(&range)
     }
@@ -325,51 +431,50 @@ impl<T: Clone> AlphabetPartitionMap<T> {
         self.parts.len()
     }
 
-    /// Returns true if the partitioning is empty.
+    /// Returns `true`precisely if the partitioning is empty.
     pub fn is_empty(&self) -> bool {
         self.parts.is_empty()
     }
 
-    /// Performs a partition refinement of this partitioning with the given partitioning.
-    /// Let $P$ be this partitioning, $Q$  be the other partitioning.
-    /// Then, for all partitions $p$ in $P$ or $Q$, there are ranges 'r1', ..., 'rn' in the refined partitioning such that:
+    /// Computes the coarsest common refinement of two partitionings.
     ///
-    /// - $p = r_1 \cup ... \cup r_n$
-    /// - $r_i \leq r_{i+1}$ for all $1 \leq i \le n$
-    /// - For all $r_j$ with  $r_i \leq r_j \leq r_{i+1}$ either $ri = rj$ or $r_{i+1} = rj$
+    /// Given two partitionings `self: P` and `other: Q`, this returns a new partitioning `R` such that every range `r ∈ R` is the intersection of:
     ///
-    /// ## Handling of values
-    /// Let $(r, v)$ be a key-value pair in the refined partitioning, then
+    /// - a range in `P` and a range in `Q`, or
+    /// - a range in `P` and a range in the complement of `Q`, or
+    /// - a range in `Q` and a range in the complement of `P`
     ///
-    /// - if $r$ overlaps with a range $r_p$ in $P$ but not no range in $Q$, then $v = P(r_p)$
-    /// - if $r$ overlaps with a range $r_q$ in $Q$ but with no range in $P$, then $v = Q(r_q)$
-    /// - if $r$ overlaps with a range $r_p$ in $P$ and a range $r_q$ in $Q$, then $v = f(P(r_p), Q(r_q))$
+    /// In other words, `R` is the coarsest partitioning that is a common refinement of `P` and `Q`.
     ///
+    /// The associated value for each `r ∈ R` is determined as follows:
     ///
-    /// where $P(r_p)$ and $Q(r_q)$ are the values associated with the ranges $r_p$ and $r_q$ in the partitioning $P$ and $Q$, respectively, and $f$ is a function that refines the values. This function is passed as an argument to the method.
-    /// In other words, the function f is called whenever there is a non-empty overlap between two ranges in the partitions.
+    /// - If `r` is contained in a range `p ∈ P` and disjoint from all ranges in `Q`, its value is `P(p)`.
+    /// - If `r` is contained in a range `q ∈ Q` and disjoint from all ranges in `P`, its value is `Q(q)`.
+    /// - If `r` is the intersection of `p ∈ P` and `q ∈ Q`, its value is `f(P(p), Q(q))`.
     ///
     /// # Arguments
     ///
-    /// * `other` - The partitioning to refine with.
-    /// * `f` - A function that refines the values of overlapping partitions. See the description above for more details.
+    /// * `other` — the partitioning to refine with
+    /// * `f` — a function used to merge values when ranges from both partitionings overlap
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
-    /// use smt_str::alphabet::{AlphabetPartitionMap, CharRange};
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
     ///
-    /// let mut partitioning1 = AlphabetPartitionMap::empty();
-    /// partitioning1.insert_unchecked(CharRange::new('a', 'z'), 1);
+    /// let mut p1 = AlphabetPartitionMap::empty();
+    /// p1.insert_unchecked(CharRange::new('a', 'z'), 1);
     ///
-    /// let mut partitioning2 = AlphabetPartitionMap::empty();
-    /// partitioning2.insert_unchecked(CharRange::new('b', 'c'), 2);
+    /// let mut p2 = AlphabetPartitionMap::empty();
+    /// p2.insert_unchecked(CharRange::new('b', 'c'), 2);
     ///
-    /// let refined_partitioning = partitioning1.refine(&partitioning2, |v1, v2| v1 + v2);
-    /// let mut iter = refined_partitioning.iter();
+    /// let refined = p1.refine(&p2, |a, b| a + b);
+    ///
+    /// let mut iter = refined.iter();
     /// assert_eq!(iter.next(), Some((&CharRange::new('a', 'a'), &1)));
     /// assert_eq!(iter.next(), Some((&CharRange::new('b', 'c'), &3)));
     /// assert_eq!(iter.next(), Some((&CharRange::new('d', 'z'), &1)));
+    /// assert_eq!(iter.next(), None);
     /// ```
     #[allow(clippy::comparison_chain)]
     pub fn refine<F>(&self, other: &Self, f: F) -> Self
@@ -462,40 +567,138 @@ impl<T: Clone> AlphabetPartitionMap<T> {
         refined
     }
 
-    /// Refines the partitioning with a single partition.
-    /// This is a convenience method that creates a single-partition partitioning and refines the current partitioning with it.
-    pub fn refine_single<F>(&self, rn: CharRange, val: T, f: F) -> Self
+    /// Refines the partitioning with a single character range and associated value.
+    ///
+    /// This is a convenience method that creates a singleton partitioning and invokes [`refine`] with it.
+    /// The result is equivalent to refining `self` with a partitioning containing only the given range.
+    ///
+    /// See [`refine`](Self::refine) for the semantics of refinement.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` — the range to refine with
+    /// * `val` — the value associated with the range
+    /// * `f` — the merge function used when `range` overlaps with an existing range
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut p = AlphabetPartitionMap::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'z'), 1);
+    ///
+    /// let refined = p.refine_single(CharRange::new('b', 'c'), 2, |a, b| a + b);
+    ///
+    /// let mut iter = refined.iter();
+    /// assert_eq!(iter.next(), Some((&CharRange::new('a', 'a'), &1)));
+    /// assert_eq!(iter.next(), Some((&CharRange::new('b', 'c'), &3)));
+    /// assert_eq!(iter.next(), Some((&CharRange::new('d', 'z'), &1)));
+    /// assert_eq!(iter.next(), None);
+    /// ```
+    pub fn refine_single<F>(&self, range: CharRange, val: T, f: F) -> Self
     where
         F: Fn(&T, &T) -> T,
     {
-        let temp_part = AlphabetPartitionMap::singleton(rn, val);
+        let temp_part = AlphabetPartitionMap::singleton(range, val);
         self.refine(&temp_part, f)
     }
 
-    /// Returns an iterator over the partitions in the partitioning.
+    /// Returns an iterator over the character ranges and associated values in the partitioning.
+    ///
+    /// The iterator yields pairs of [`CharRange`] and references to their associated values, in ascending order of ranges.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut p = AlphabetPartitionMap::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'c'), 1);
+    /// p.insert_unchecked(CharRange::new('x', 'z'), 2);
+    ///
+    /// let mut iter = p.iter();
+    /// assert_eq!(iter.next(), Some((&CharRange::new('a', 'c'), &1)));
+    /// assert_eq!(iter.next(), Some((&CharRange::new('x', 'z'), &2)));
+    /// assert_eq!(iter.next(), None);
+    /// ```
     pub fn iter(&self) -> impl Iterator<Item = (&CharRange, &T)> + '_ {
         self.parts.iter()
     }
 
-    /// Returns an iterator over the partitions in the partitioning with a mutable reference to the values.
+    /// Returns an iterator over the character ranges and mutable references to their associated values.
+    ///
+    /// The iterator yields pairs of [`CharRange`] and mutable references to their associated values,
+    /// in ascending order of ranges. This allows modifying the values in-place.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut p = AlphabetPartitionMap::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'c'), 1);
+    /// p.insert_unchecked(CharRange::new('x', 'z'), 2);
+    ///
+    /// for (_, value) in p.iter_mut() {
+    ///     *value += 1;
+    /// }
+    ///
+    /// let mut iter = p.iter();
+    /// assert_eq!(iter.next(), Some((&CharRange::new('a', 'c'), &2)));
+    /// assert_eq!(iter.next(), Some((&CharRange::new('x', 'z'), &3)));
+    /// assert_eq!(iter.next(), None);
+    /// ```
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&CharRange, &mut T)> + '_ {
         self.parts.iter_mut()
     }
 
-    /// Checks if the given character range overlaps with any partition in the partitioning.
-    /// Returns the (first) overlapping partition, if it exists. Returns `None` otherwise.
-    /// This needs O(n) time, where n is the number of partitions in the partitioning.
-    /// Could be improved by using a binary search.
-    fn overlaps(&self, range: CharRange) -> Option<(&CharRange, &T)> {
+    /// Checks whether the given character range overlaps with any existing partition in the map.
+    ///
+    /// Returns the first overlapping `(CharRange, value)` pair if any overlap exists; otherwise returns `None`.
+    ///
+    /// This method performs a linear scan over all ranges and runs in `O(n)` time, where `n` is the number of partitions.
+    /// TODO: Could be optimized to `O(log n)` using binary search.
+    ///
+    /// # Arguments
+    /// - `range`: The [`CharRange`] to test for overlap.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut p = AlphabetPartitionMap::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'z'), 1);
+    ///
+    /// assert!(p.overlaps(CharRange::new('m', 'p')).is_some());
+    /// assert!(p.overlaps(CharRange::new('0', '9')).is_none());
+    /// ```
+    pub fn overlaps(&self, range: CharRange) -> Option<(&CharRange, &T)> {
         self.parts
             .iter()
             .find(|(r, _)| !r.intersect(&range).is_empty())
     }
 
-    /// Returns true if the partitioning is valid.
-    /// That is, if no two partitions overlap.
-    /// This needs O(n) time, where n is the number of partitions in the partitioning.
-    fn valid(&self) -> bool {
+    /// Returns `true` if the partitioning is valid, i.e., if no two character ranges overlap.
+    /// This property holds as long as `insert_unchecked` is not used to insert overlapping ranges.
+    ///
+    /// This method checks that for every pair of consecutive ranges `(r1, r2)`, the end of `r1` is strictly less than the start of `r2`.
+    /// This ensures that the partitioning forms a set of non-overlapping ranges.
+    ///
+    /// Runs in `O(n)` time, where `n` is the number of partitions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::alphabet::{partition::AlphabetPartitionMap, CharRange};
+    ///
+    /// let mut p = AlphabetPartitionMap::empty();
+    /// p.insert_unchecked(CharRange::new('a', 'f'), 1);
+    /// p.insert_unchecked(CharRange::new('g', 'z'), 2);
+    /// assert!(p.valid());
+    ///
+    /// // Overlapping range leads to invalid partitioning
+    /// p.insert_unchecked(CharRange::new('e', 'h'), 3);
+    /// assert!(!p.valid());
+    /// ```
+    pub fn valid(&self) -> bool {
         self.parts
             .keys()
             .zip(self.parts.keys().skip(1))
