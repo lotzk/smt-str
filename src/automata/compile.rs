@@ -396,7 +396,7 @@ mod test {
     #[test]
     fn test_compile_any() {
         let mut builder = ReBuilder::default();
-        let re = builder.any_char();
+        let re = builder.allchar();
         let nfa = test_acceptance(&re, &mut builder, &["a".into()], &["".into(), "ab".into()]);
         assert_eq!(nfa.states().count(), 2);
     }
@@ -635,7 +635,7 @@ mod test {
     #[quickcheck]
     fn test_compile_plus_of_any(w: SmtString) {
         let mut builder = ReBuilder::default();
-        let any = builder.any_char();
+        let any = builder.allchar();
         let re = builder.plus(any);
         if w.is_empty() {
             test_acceptance(&re, &mut builder, &[], &[w]);

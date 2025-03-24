@@ -46,6 +46,8 @@ pub mod partition;
 
 use std::{cmp::Ordering, fmt::Display};
 
+use quickcheck::Arbitrary;
+
 use crate::{CharIterator, SmtChar};
 
 /// A range of characters [SmtChar]s defined by a start and an end character.
@@ -892,6 +894,14 @@ impl Alphabet {
     }
 }
 
+impl From<CharRange> for Alphabet {
+    fn from(r: CharRange) -> Self {
+        let mut alphabet = Alphabet::default();
+        alphabet.insert(r);
+        alphabet
+    }
+}
+
 impl FromIterator<CharRange> for Alphabet {
     fn from_iter<T: IntoIterator<Item = CharRange>>(iter: T) -> Self {
         let mut alphabet = Alphabet::default();
@@ -937,29 +947,29 @@ impl Display for Alphabet {
     }
 }
 
+impl Arbitrary for CharRange {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let start = SmtChar::arbitrary(g);
+        let end = SmtChar::arbitrary(g);
+        CharRange::new(start.min(end), end.max(start))
+    }
+}
+
+impl Arbitrary for Alphabet {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let mut alphabet = Alphabet::default();
+        let ranges: Vec<CharRange> = Arbitrary::arbitrary(g);
+        for r in ranges {
+            alphabet.insert(r);
+        }
+        alphabet
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use quickcheck::Arbitrary;
+
     use quickcheck_macros::quickcheck;
-
-    impl Arbitrary for CharRange {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let start = SmtChar::arbitrary(g);
-            let end = SmtChar::arbitrary(g);
-            CharRange::new(start.min(end), end.max(start))
-        }
-    }
-
-    impl Arbitrary for Alphabet {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let mut alphabet = Alphabet::default();
-            let ranges: Vec<CharRange> = Arbitrary::arbitrary(g);
-            for r in ranges {
-                alphabet.insert(r);
-            }
-            alphabet
-        }
-    }
 
     use crate::{
         alphabet::{Alphabet, CharRange},

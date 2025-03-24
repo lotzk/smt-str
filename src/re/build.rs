@@ -1,3 +1,5 @@
+//! The builder for regular expressions.
+
 use smallvec::smallvec;
 
 use crate::SmtChar;
@@ -5,8 +7,53 @@ use crate::SmtChar;
 use super::*;
 use std::collections::{BTreeSet, HashMap};
 
-/// A builder for regular expressions that constructs unique regex instances.
-/// It is the only way to create regex instances.
+/// A builder for constructing regular expressions in the SMT-LIB string theory.
+///
+/// This is the only way to create [`Regex`] instances.
+/// The `ReBuilder` ensures structural sharing by deduplicates identical sub-expressions and  assigns globally unique identifiers to each node.
+/// An instance of `ReBuilder` is obtained by calling [`ReBuilder::default()`] or [`ReBuilder::non_optimizing()`].
+///
+/// Internally, the builder maintains a registry of expressions:
+/// if the same regular expression is constructed multiple times, it will return
+/// a shared, reference-counted pointer to the same [`ReNode`] instance.
+/// The builder automatically performs garbage collection on unused expressions to keep memory usage low.
+///
+/// For each SMT-LIB regex operation (e.g., `re.*`, `re.union`, `re.++`, `re.comp`, etc.),
+/// the builder provides a corresponding method to create the appropriate [`Regex`] node.
+///
+/// # Optimization
+/// By default, the builder performs lightweight optimizations during construction.
+/// For instance, it may simplify expressions like `(re.++ ε r)` to just `r`.
+/// This behavior can be disabled by constructing a builder using [ReBuilder::non_optimizing()],
+/// which suppresses all such optimizations.
+///
+/// # Using multiple builders
+/// Mixing regular expressions from different builders results in logical errors.
+/// It is recommended to use a single builder instance to construct all regular expressions in a program.
+///
+/// # Example
+/// ```
+/// use smt_str::re::*;
+/// use smallvec::smallvec;
+///
+/// let mut builder1 = ReBuilder::default();
+/// let mut builder2 = ReBuilder::default();
+///
+/// // Construct a regex using the first builder
+/// let r1 = builder1.to_re("a".into());
+///
+/// // Construct a regex using the second builder
+/// let r2 = builder2.to_re("b".into());
+///
+/// // The regexes are structurally different but the following assertion will hold
+/// assert_eq!(r1, r2);
+///
+/// // Construct compound regexes using regexes from different builder will also result in unexpected behavior
+/// let r3 = builder1.union(smallvec![r1.clone(), r2.clone()]);
+///
+/// // The following assertion will hold, although we wanted r3 to accept "a" and "b"
+/// assert!(!r3.accepts(&"a".into()), "{}", r3);
+/// ```
 #[derive(Debug)]
 pub struct ReBuilder {
     registry: Registry,
@@ -41,6 +88,7 @@ impl Default for ReBuilder {
 }
 
 impl ReBuilder {
+    /// Creates a new `RegexBuilder` with on-the-fly optimization disabled.
     pub fn non_optimizing() -> Self {
         Self {
             optimize: false,
@@ -55,8 +103,29 @@ impl ReBuilder {
     /// Checks if the builder manages the given regex.
     /// Returns true if the regex was constructed by this builder.
     /// Returns false otherwise.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smallvec::smallvec;
+    ///
+    /// let mut builder1 = ReBuilder::default();
+    /// let mut builder2 = ReBuilder::default();
+    ///
+    /// // Construct a regex using the first builder
+    /// let r1 = builder1.to_re("a".into());
+    ///
+    /// // Construct a regex using the second builder
+    /// let r2 = builder2.to_re("b".into());
+    ///
+    ///
+    /// assert!(builder1.manages(&r1));
+    /// assert!(!builder1.manages(&r2));
+    /// assert!(builder2.manages(&r2));
+    /// assert!(!builder2.manages(&r1));
+    /// ```
     pub fn manages(&self, regex: &Regex) -> bool {
-        // We need to check if the registry has the regex pattern stored with the same id.
+        // We need to check if the registry has the regex stored with the same id.
         // After that we need to check that that the stored regex is pointer equal to the given regex
         // Only checking the id is not enough as the id is only unique to the builder instance
         // We could also recurse the structure and check if all children are managed by this builder.
@@ -66,14 +135,31 @@ impl ReBuilder {
         }
     }
 
-    /// Builds a regex that was constructed by a different builder.
-    /// Returns a new regex managed by this builder.
+    /// Re-create a structurally identical regex as the given one using this builder.
+    ///
+    /// /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smallvec::smallvec;
+    ///
+    /// let mut builder1 = ReBuilder::default();
+    /// let mut builder2 = ReBuilder::default();
+    ///
+    ///
+    /// // Construct a regex using the second builder
+    /// let r = builder2.to_re("b".into());
+    ///
+    /// assert!(!builder1.manages(&r));
+    ///
+    /// let rr = builder1.regex(&r);
+    /// assert!(builder1.manages(&rr));
+    /// ```
     pub fn regex(&mut self, regex: &Regex) -> Regex {
         match regex.op() {
             ReOp::Literal(w) => self.to_re(w.clone()),
             ReOp::None => self.none(),
             ReOp::All => self.all(),
-            ReOp::Any => self.any_char(),
+            ReOp::Any => self.allchar(),
             ReOp::Concat(rs) => {
                 let rs = rs.iter().map(|r| self.regex(r)).collect();
                 self.concat(rs)
@@ -119,37 +205,107 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression of a constant word.
+    /// Constructor for `str.to_re`.
+    /// Returns a regular expression of a constant word.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smt_str::SmtString;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let string = SmtString::from("abc");
+    /// let r = builder.to_re(string.clone());
+    /// assert!(r.accepts(&string));
+    /// ```
+    ///
     pub fn to_re(&mut self, w: SmtString) -> Regex {
         self.intern(ReOp::Literal(w))
     }
 
     /// Constructs a regular expression denoting the empty word.
+    /// This is exactly the regular expression `(str.to_re "")`.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.epsilon();
+    /// assert!(r.accepts(&"".into()));
+    /// ```
     pub fn epsilon(&self) -> Regex {
         self.re_epsilon.clone()
     }
 
-    /// Constructs a regular expression denoting the empty set.
+    /// Constructor for `re.none`.
+    /// Returns a regular expression denoting the empty set.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.none();
+    /// assert!(!r.accepts(&"a".into()));
+    /// assert!(!r.accepts(&"".into()));
+    /// assert_eq!(r.none(), Some(true));
+    /// ```
     pub fn none(&self) -> Regex {
         self.re_none.clone()
     }
 
-    /// Constructs a regular expression denoting the set of all strings.
+    /// Constructor for `re.all`.
+    /// Returns a regular expression denoting the set of all strings.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.all();
+    /// assert!(r.accepts(&"a".into()));
+    /// assert!(r.accepts(&"".into()));
+    /// assert_eq!(r.universal(), Some(true));
+    /// ```
     pub fn all(&self) -> Regex {
         self.re_all.clone()
     }
 
-    /// Constructs a regular expression denoting the set of all strings of length 1.
-    pub fn any_char(&self) -> Regex {
+    /// Constructor for `re.allchar`.
+    /// Returns a regular expression accepting any character in the SMT-LIB alphabet (0 - 0x2FFFF).
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.allchar();
+    /// assert!(r.accepts(&"a".into()));
+    /// assert!(r.accepts(&"🦀".into()));
+    /// assert!(!r.accepts(&"".into()));
+    /// ```
+    pub fn allchar(&self) -> Regex {
         self.re_allchar.clone()
     }
 
-    /// Constructs a regular expression denoting the set of all strings of length 1 such that that lexicographically bounded by the given parameters.
-    pub fn range_from_to(&mut self, l: impl Into<SmtChar>, u: impl Into<SmtChar>) -> Regex {
-        self.range(CharRange::new(l.into(), u.into()))
-    }
-
-    /// Constructs a regular expression denoting the set of all strings of length 1 such that that lexicographically bounded by the given parameters.
+    /// Constructor for `re.range`.
+    /// Returns a regular expression denoting the set of characters in the given range.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smt_str::alphabet::CharRange;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.range(CharRange::new('a', 'z'));
+    /// assert!(r.accepts(&"a".into()));
+    /// assert!(r.accepts(&"c".into()));
+    /// assert!(r.accepts(&"a".into()));
+    /// assert!(r.accepts(&"b".into()));
+    /// assert!(!r.accepts(&"A".into()));
+    /// ```
     pub fn range(&mut self, r: CharRange) -> Regex {
         if self.optimize {
             self.range_opt(r)
@@ -158,11 +314,16 @@ impl ReBuilder {
         }
     }
 
+    /// Wrapper for [`ReBuilder::range`] that creates a range from the given characters.
+    pub fn range_from_to(&mut self, l: impl Into<SmtChar>, u: impl Into<SmtChar>) -> Regex {
+        self.range(CharRange::new(l.into(), u.into()))
+    }
+
     fn range_opt(&mut self, r: CharRange) -> Regex {
         if r.is_empty() {
             self.none()
         } else if r.is_full() {
-            self.any_char()
+            self.allchar()
         } else if let Some(c) = r.is_singleton() {
             self.to_re(c.into())
         } else {
@@ -170,7 +331,21 @@ impl ReBuilder {
         }
     }
 
+    /// Constructor for `re.++`.
     /// Constructs a regular expression denoting the concatenation of the given regular expressions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smallvec::smallvec;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r1 = builder.to_re("abc".into());
+    /// let r2 = builder.to_re("def".into());
+    /// let r = builder.concat(smallvec![r1, r2]);
+    /// assert!(r.accepts(&"abcdef".into()));
+    /// assert!(!r.accepts(&"abc".into()));
+    /// ```
     pub fn concat(&mut self, rs: SmallVec<[Regex; 2]>) -> Regex {
         if self.optimize {
             self.concat_opt(rs)
@@ -231,7 +406,22 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the union of the given regular expressions.
+    /// Constructor for `re.union`.
+    /// Returns a regular expression denoting the union of the given regular expressions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smallvec::smallvec;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r1 = builder.to_re("ac".into());
+    /// let r2 = builder.to_re("ab".into());
+    /// let r = builder.union(smallvec![r1, r2]);
+    /// assert!(r.accepts(&"ac".into()));
+    /// assert!(r.accepts(&"ab".into()));
+    /// assert!(!r.accepts(&"cb".into()));
+    /// ```
     pub fn union(&mut self, rs: SmallVec<[Regex; 2]>) -> Regex {
         if self.optimize {
             self.union_opt(rs)
@@ -245,7 +435,6 @@ impl ReBuilder {
 
         // Filter out empty terms as they are the identity element of union
         // Collect the remaining terms into a set to deduplicate and make the order deterministic
-
         #[allow(clippy::mutable_key_type)]
         let rs: BTreeSet<Regex> = rs
             .into_iter()
@@ -270,7 +459,24 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the intersection of the given regular expressions.
+    /// Constructor for `re.inter`.
+    /// Returns a regular expression denoting the intersection of the given regular expressions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    /// use smallvec::smallvec;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r1 = builder.range_from_to('a', 'z');
+    /// let r2 = builder.range_from_to('o', 'x');
+    /// let r = builder.inter(smallvec![r1, r2]);
+    /// assert!(r.accepts(&"o".into()));
+    /// assert!(r.accepts(&"q".into()));
+    /// assert!(r.accepts(&"x".into()));
+    /// assert!(!r.accepts(&"z".into()));
+    /// assert!(!r.accepts(&"1".into()));
+    /// ```
     pub fn inter(&mut self, rs: SmallVec<[Regex; 2]>) -> Regex {
         if self.optimize {
             self.inter_opt(rs)
@@ -310,7 +516,22 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the Kleene closure of the given regular expression.
+    /// Constructor for `re.*`.
+    /// Returns a regular expression denoting the Kleene star of the given regular expression.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let s = builder.star(r);
+    /// assert!(s.accepts(&"".into()));
+    /// assert!(s.accepts(&"a".into()));
+    /// assert!(s.accepts(&"aaaa".into()));
+    /// assert!(s.accepts(&"aaaaaaaa".into()));
+    /// assert!(!s.accepts(&"b".into()));
+    /// ```
     pub fn star(&mut self, r: Regex) -> Regex {
         if self.optimize {
             self.star_opt(r)
@@ -333,7 +554,22 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the positive closure of the given regular expression.
+    /// Constructor for `re.+`.
+    /// Returns a regular expression denoting the positive closure of the given regular expression.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let p = builder.plus(r);
+    /// assert!(!p.accepts(&"".into()));
+    /// assert!(p.accepts(&"a".into()));
+    /// assert!(p.accepts(&"aaaa".into()));
+    /// assert!(p.accepts(&"aaaaaaaa".into()));
+    /// assert!(!p.accepts(&"b".into()));
+    /// ```
     pub fn plus(&mut self, r: Regex) -> Regex {
         if self.optimize {
             self.plus_opt(r)
@@ -358,7 +594,21 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the complement of the given regular expression.
+    /// Constructor for `re.comp`.
+    /// Returns a regular expression denoting the complement of the given regular expression.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let c = builder.comp(r);
+    /// assert!(!c.accepts(&"a".into()));
+    /// assert!(c.accepts(&"b".into()));
+    /// assert!(c.accepts(&"".into()));
+    /// assert!(c.accepts(&"aa".into()));
+    /// ```
     pub fn comp(&mut self, r: Regex) -> Regex {
         if self.optimize {
             self.comp_opt(r)
@@ -377,7 +627,24 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the difference of the two given regular expressions.
+    /// Constructor for `re.diff`.
+    /// Returns a regular expression denoting the difference of the given regular expressions.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let a = builder.to_re("a".into());
+    /// let s = builder.star(a.clone());
+    /// let eps = builder.epsilon();
+    /// let r = builder.diff(s, eps);
+    ///
+    /// assert!(r.accepts(&"a".into()));
+    /// assert!(r.accepts(&"aaaa".into()));
+    /// assert!(!r.accepts(&"".into()));
+    /// assert!(!r.accepts(&"b".into()));
+    /// ```
     pub fn diff(&mut self, r1: Regex, r2: Regex) -> Regex {
         if self.optimize {
             self.diff_opt(r1, r2)
@@ -392,11 +659,28 @@ impl ReBuilder {
         } else if r2.none().unwrap_or(false) {
             r1.clone()
         } else {
-            self.intern(ReOp::Diff(r1, r2))
+            match (r1.op(), r2.op()) {
+                (ReOp::Opt(r), _) if r2.epsilon().unwrap_or(false) => r.clone(),
+                (ReOp::Star(r), _) if r2.epsilon().unwrap_or(false) => self.plus(r.clone()),
+                _ => self.intern(ReOp::Diff(r1, r2)),
+            }
         }
     }
 
-    /// Constructs a regular expression that either accepts the given regular expression or the empty word.
+    /// Constructor for `re.opt`.
+    /// Returns a regular expression denoting the optional version of the given regular expression.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let o = builder.opt(r);
+    /// assert!(o.accepts(&"a".into()));
+    /// assert!(o.accepts(&"".into()));
+    /// assert!(!o.accepts(&"b".into()));
+    /// ```
     pub fn opt(&mut self, r: Regex) -> Regex {
         if self.optimize {
             self.opt_opt(r)
@@ -413,7 +697,20 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the set of the n-th powers of the given regular expression, that is, the n-fold concatenation of the regular expression with itself.
+    /// Constructor for `re.pow`.
+    /// Returns a regular expression denoting the `n`th power of the given regular expression.
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let p = builder.pow(r, 3);
+    /// assert!(p.accepts(&"aaa".into()));
+    /// assert!(!p.accepts(&"aaaa".into()));
+    /// assert!(!p.accepts(&"aa".into()));
+    /// ```
     pub fn pow(&mut self, r: Regex, n: u32) -> Regex {
         if self.optimize {
             self.pow_opt(r, n)
@@ -432,7 +729,25 @@ impl ReBuilder {
         }
     }
 
-    /// Constructs a regular expression denoting the union of languages `T^n, T^(n+1), ..., T^m`
+    /// Constructor for `re.loop`.
+    /// Returns a regular expression denoting the loop of the given regular expression.
+    /// That is, the regular expression accepts any number of repetitions of the given regular expression between `l` and `u` times (inclusive).
+    ///
+    /// # Example
+    /// ```
+    /// use smt_str::re::*;
+    ///
+    /// let mut builder = ReBuilder::default();
+    /// let r = builder.to_re("a".into());
+    /// let l = 2;
+    /// let u = 4;
+    /// let looped = builder.loop_(r, l, u);
+    /// assert!(looped.accepts(&"aa".into()));
+    /// assert!(looped.accepts(&"aaa".into()));
+    /// assert!(looped.accepts(&"aaaa".into()));
+    /// assert!(!looped.accepts(&"aaaaa".into()));
+    /// assert!(!looped.accepts(&"a".into()));
+    /// ```
     pub fn loop_(&mut self, r: Regex, l: u32, u: u32) -> Regex {
         if self.optimize {
             self.loop_opt(r, l, u)
@@ -455,7 +770,8 @@ impl ReBuilder {
 
     /// Unrolls a loop of the given regular expression.
     /// The loop is unrolled as a concatenation of the given regular expression repeated `l` times followed by the optional regular expression repeated `u-l` times.
-    pub fn unroll_loop(&mut self, r: Regex, l: u32, u: u32) -> Regex {
+    #[allow(dead_code)]
+    fn unroll_loop(&mut self, r: Regex, l: u32, u: u32) -> Regex {
         let mut concats: SmallVec<[Rc<ReNode>; 2]> = SmallVec::with_capacity(u as usize);
         let opt = self.opt(r.clone());
         for i in 0..u {
@@ -470,7 +786,8 @@ impl ReBuilder {
 
     /// Unrolls a power of the given regular expression.
     /// The power is unrolled as a concatenation of the given regular expression repeated `n` times.
-    pub fn unroll_pow(&mut self, r: Regex, n: u32) -> Regex {
+    #[allow(dead_code)]
+    fn unroll_pow(&mut self, r: Regex, n: u32) -> Regex {
         let mut concats = SmallVec::with_capacity(n as usize);
         for _ in 0..n {
             concats.push(r.clone());
@@ -481,10 +798,7 @@ impl ReBuilder {
     /* Aux methods */
 
     /// Constructs a regular expression denoting the reverse of the given regular expression.
-    /// For all words $w$ in the language of the given regular expression, the reverse language contains the reverse word $w^R$, where $w^R$ is the reverse of $w$.
-    ///
-    /// # Arguments
-    /// * `r` - The regular expression to reverse.
+    /// If a word w is accepted by the given regular expression, then the reverse of w is accepted by the returned regular expression.
     pub fn reversed(&mut self, r: &Regex) -> Regex {
         match r.op() {
             ReOp::Literal(word) => self.to_re(word.reversed()),
@@ -616,8 +930,8 @@ mod test {
     #[test]
     fn intern_all_char() {
         let builder = ReBuilder::default();
-        let ac1 = builder.any_char();
-        let ac2 = builder.any_char();
+        let ac1 = builder.allchar();
+        let ac2 = builder.allchar();
         assert!(Rc::ptr_eq(&ac1, &ac2));
     }
 
@@ -633,7 +947,7 @@ mod test {
     fn intern_range_full() {
         let mut builder = ReBuilder::default();
         let r1 = builder.range_from_to('\0', SmtChar::MAX);
-        let r2 = builder.any_char();
+        let r2 = builder.allchar();
         assert!(Rc::ptr_eq(&r1, &r2));
     }
 
@@ -731,7 +1045,7 @@ mod test {
     fn non_universal_concat() {
         let mut builder = ReBuilder::default();
         let a = builder.all();
-        let b = builder.any_char();
+        let b = builder.allchar();
         let c = builder.concat(smallvec![a.clone(), b.clone()]);
         assert_eq!(c.universal(), Some(false));
     }
@@ -748,7 +1062,7 @@ mod test {
     #[test]
     fn non_universal_union() {
         let mut builder = ReBuilder::default();
-        let b = builder.any_char();
+        let b = builder.allchar();
         let c = builder.concat(smallvec![b.clone(), b.clone()]);
         assert_eq!(c.universal(), Some(false));
     }

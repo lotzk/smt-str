@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn sample_any() {
         let mut builder = ReBuilder::default();
-        let regex = builder.any_char();
+        let regex = builder.allchar();
 
         assert!(sample_regex(&regex, &mut builder, 0).is_none());
         assert!(sample_regex(&regex, &mut builder, 20).is_some());
