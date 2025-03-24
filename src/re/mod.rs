@@ -598,7 +598,7 @@ impl ReOp {
                 let mut i = 0;
                 let mut done = false;
                 while !done {
-                    if prefixes.iter().all(|p| p.len() < i) {
+                    if prefixes.iter().all(|p| i < p.len()) {
                         done = !prefixes.iter().map(|p| p[i]).all_equal();
                         i += 1;
                     } else {
