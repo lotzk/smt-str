@@ -1021,8 +1021,13 @@ impl ReOp {
                 let mut done = false;
                 while !done {
                     if prefixes.iter().all(|p| i < p.len()) {
-                        done = !prefixes.iter().map(|p| p[i]).all_equal();
-                        i += 1;
+                        if !prefixes.iter().map(|p| p[i]).all_equal() {
+                            // not all characters are equal
+                            done = true;
+                        } else {
+                            // all characters are equal, check next character
+                            i += 1;
+                        }
                     } else {
                         done = true;
                     }
@@ -1075,8 +1080,13 @@ impl ReOp {
                 let mut done = false;
                 while !done {
                     if suffixed_revd.iter().all(|p| i < p.len()) {
-                        done = !suffixed_revd.iter().map(|p| p[i]).all_equal();
-                        i += 1;
+                        if !suffixed_revd.iter().map(|p| p[i]).all_equal() {
+                            // not all characters are equal
+                            done = true;
+                        } else {
+                            // all characters are equal, check next character
+                            i += 1;
+                        }
                     } else {
                         done = true;
                     }
@@ -1986,5 +1996,33 @@ mod tests {
         let ab = builder.range_from_to('a', 'b');
         assert_eq!(a.is_constant(), Some(SmtString::from("a")));
         assert_eq!(ab.is_constant(), None);
+    }
+
+    #[test]
+    fn prefix_bug() {
+        // (re.++ (str.to_re "x") ((_ re.^ 4) (re.union (str.to_re "e") (str.to_re "d"))) (str.to_re "x"))
+        let mut builder = ReBuilder::non_optimizing();
+        let x = builder.to_re("x".into());
+        let e = builder.to_re("e".into());
+        let d = builder.to_re("d".into());
+        let union = builder.union(smallvec![e.clone(), d.clone()]);
+        let pow = builder.pow(union.clone(), 4);
+        let re = builder.concat(smallvec![x.clone(), pow.clone(), x.clone()]);
+        let prefix = re.prefix();
+        assert_eq!(prefix, Some(SmtString::from("x")));
+    }
+
+    #[test]
+    fn prefix_suf() {
+        // (re.++ (str.to_re "x") ((_ re.^ 4) (re.union (str.to_re "e") (str.to_re "d"))) (str.to_re "x"))
+        let mut builder = ReBuilder::non_optimizing();
+        let x = builder.to_re("x".into());
+        let e = builder.to_re("e".into());
+        let d = builder.to_re("d".into());
+        let union = builder.union(smallvec![e.clone(), d.clone()]);
+        let pow = builder.pow(union.clone(), 4);
+        let re = builder.concat(smallvec![x.clone(), pow.clone(), x.clone()]);
+        let prefix = re.suffix();
+        assert_eq!(prefix, Some(SmtString::from("x")));
     }
 }
