@@ -12,6 +12,8 @@ use super::comp::complement;
 use super::inter::intersect;
 use super::{TransitionType, NFA};
 
+use smallvec::smallvec;
+
 /// Compiles the given regex into an NFA.
 /// The NFA accepts exactly the language of the regex.
 /// The NFA is constructed using the Thompson construction.
@@ -300,15 +302,49 @@ impl Thompson {
     /// Creates an NFA accepting the loop of the given regex
     /// That is, accepts at least `lower` and at most `upper` repetitions of the regex.
     fn loop_(&mut self, regex: &Regex, lower: u32, upper: u32, builder: &mut ReBuilder) -> NFA {
-        let mut rs = Vec::with_capacity(upper as usize);
-        for i in 0..upper {
-            if i >= lower {
-                rs.push(builder.opt(regex.clone()));
-            } else {
-                rs.push(regex.clone());
-            }
+        let pow_unrolling = self.bounded_loop(regex, lower, upper, builder);
+        self.compile_rec(&pow_unrolling, builder)
+    }
+
+    /// Constructs a regex that accepts between `lower` and `upper` repetitions of `regex`,
+    /// using power-of-two unrolling to minimize regex size.
+    ///
+    /// This avoids generating `upper` copies of `regex` by:
+    /// - Concatenating `lower` required copies of `regex`
+    /// - Adding optional chunks of `1`, `2`, `4`, `8`, ... repetitions, depending on `upper - lower`
+    ///
+    /// For example, with `lower = 0` and `upper = 253`, it builds:
+    ///     (R^1)? (R^2)? (R^4)? (R^8)? (R^16)? (R^32)? (R^64)? (R^128)?
+    fn bounded_loop(
+        &mut self,
+        regex: &Regex,
+        lower: u32,
+        upper: u32,
+        builder: &mut ReBuilder,
+    ) -> Regex {
+        assert!(lower <= upper);
+
+        // Required part: concat lower copies
+        let mut acc = if lower > 0 {
+            smallvec![regex.clone(); lower as usize]
+        } else {
+            smallvec![]
+        };
+
+        // Optional part: power-of-two unrolling
+        let mut optional_reps = upper - lower;
+        let mut chunk = 1;
+
+        while optional_reps > 0 {
+            let reps = std::cmp::min(chunk, optional_reps);
+            let repeated = builder.concat(smallvec![regex.clone(); reps as usize]);
+            let optional = builder.opt(repeated);
+            acc.push(optional);
+            optional_reps -= reps;
+            chunk *= 2;
         }
-        self.concat(&rs, builder)
+
+        builder.concat(acc)
     }
 
     fn compile_rec(&mut self, regex: &Regex, builder: &mut ReBuilder) -> NFA {
