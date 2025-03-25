@@ -97,9 +97,13 @@ impl State {
     }
 
     /// Adds a transition to the state.
+    /// If the transition already exists, it is not added again.
+    /// Needs a linear scan over the transitions to check for duplicates.
     fn add_transition(&mut self, label: TransitionType, destination: StateId) {
         let transition = Transition { label, destination };
-        self.transitions.push(transition);
+        if !self.transitions.contains(&transition) {
+            self.transitions.push(transition);
+        }
     }
 
     /// Consumes the input character and returns the set of states that can be reached from this state.
