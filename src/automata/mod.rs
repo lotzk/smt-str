@@ -10,6 +10,7 @@ use std::{
     fmt::Display,
 };
 
+use crate::alphabet::Alphabet;
 use crate::{
     alphabet::{partition::AlphabetPartitionMap, CharRange},
     SmtChar, SmtString,
@@ -437,6 +438,33 @@ impl NFA {
         }
 
         aut
+    }
+
+
+    /// Compresesses transitions from a state if they have the same destination but their ranges overlap or are adjacent.
+    /// If there are two transitions from state q to state p with ranges r1 and r2 and the ranges can be merged into a single range r, then the transitions are replaced by a single transition from q to p with range r.
+    pub fn compress_ranges(&mut self) {
+        for q in self.states() {
+            let mut dest_map = HashMap::new();
+            let mut compressed: Vec<Transition> = Vec::new();
+            for t in self.transitions_from(q).unwrap() {
+                match t.get_type() {
+                    TransitionType::Range(r) => dest_map
+                        .entry(t.get_dest())
+                        .or_insert_with(Alphabet::default)
+                        .insert(*r),
+                    _ => compressed.push(t.clone()),
+                }
+            }
+
+            for (d, ranges) in dest_map {
+                for r in ranges.iter_ranges() {
+                    compressed.push(Transition::new(TransitionType::Range(r), d));
+                }
+            }
+
+            self.states[q].transitions = compressed;
+        }
     }
 
     /// Returns the epsilon closure of a state.
