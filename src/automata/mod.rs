@@ -4,6 +4,7 @@ pub mod det;
 mod dot;
 pub mod inter;
 
+use std::collections::BinaryHeap;
 use std::error::Error;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -444,7 +445,6 @@ impl NFA {
         aut
     }
 
-
     /// Compresesses transitions from a state if they have the same destination but their ranges overlap or are adjacent.
     /// If there are two transitions from state q to state p with ranges r1 and r2 and the ranges can be merged into a single range r, then the transitions are replaced by a single transition from q to p with range r.
     pub fn compress_ranges(&mut self) {
@@ -624,6 +624,92 @@ impl NFA {
             }
         }
         None
+    }
+
+    /// Compute the length of the shortest path from the initial state to any state.
+    /// Returns a map from state indices to the length of the shortest path to that state.
+    /// Epsilon transitions are not counted in the path length, i.e., an epsilon transition has length 0.
+    ///
+    /// If a state is not reachable from the initial state, it is not included in the map.
+    /// In particular, if the automaton has no final states, the map is empty.
+    pub fn lengths_from_initial(&self) -> HashMap<StateId, usize> {
+        if let Some(q0) = self.initial {
+            self.shortest_paths(&[q0])
+        } else {
+            HashMap::new()
+        }
+    }
+
+    /// Compute the length of the shortest path to a final state from any state.
+    /// Returns a map from state indices to the length of the shortest path to a final state from that state.
+    /// Epsilon transitions are not counted in the path length, i.e., an epsilon transition has length 0.
+    ///
+    /// If a state cannot reach a final state, it is not included in the map.
+    /// If the automaton has no final states, the map is empty.
+    pub fn lengths_to_final(&self) -> HashMap<StateId, usize> {
+        let reversed = self.reversed();
+        reversed.lengths_from_initial()
+    }
+
+    /// Computes the length of the shortest paths from the states in `sources` to any state.
+    /// Returns a map from state indices to the length of the shortest path to that state from any of the sources.
+    fn shortest_paths(&self, sources: &[StateId]) -> HashMap<StateId, usize> {
+        let mut queue = BinaryHeap::new();
+        let mut length = HashMap::new();
+
+        for &q0 in sources {
+            queue.push((0, q0));
+            length.insert(q0, 0);
+        }
+
+        while let Some((len, q)) = queue.pop() {
+            for t in self.transitions_from(q).unwrap() {
+                let d = if t.is_epsilon() { 0 } else { 1 };
+                let dest = t.get_dest();
+                let new_len = len + d;
+                if !length.contains_key(&dest) || new_len < length[&dest] {
+                    length.insert(dest, new_len);
+                    queue.push((new_len, dest));
+                }
+            }
+        }
+
+        length
+    }
+
+    /// Reverse the automaton. The resulting automaton
+    ///
+    /// - has all transitions reversed,
+    /// - has a new initial state with and epsilon transition to every old final states,
+    /// - has all old initial states as final states.
+    ///
+    /// The reversed automaton accepts the reverse of the language of the original automaton.
+    pub fn reversed(&self) -> Self {
+        let mut aut = self.clone();
+        aut.finals.clear();
+        aut.initial = None;
+        // Reverse transitions
+        for q in aut.states() {
+            let transitions = aut.states[q].transitions.clone();
+            aut.states[q].transitions.clear();
+            for t in transitions {
+                aut.add_transition(t.destination, q, t.label).unwrap();
+            }
+        }
+
+        // Create a new initial state with epsilon transitions to all old final states
+        let q0 = aut.new_state();
+        aut.set_initial(q0).unwrap();
+        for f in self.finals() {
+            aut.add_transition(q0, f, TransitionType::Epsilon).unwrap();
+        }
+
+        // Set the old initial states as final states
+        if let Some(q0) = self.initial() {
+            aut.add_final(q0).unwrap();
+        }
+
+        aut
     }
 
     /// Returns whether the automaton is empty.
