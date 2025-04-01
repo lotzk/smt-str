@@ -542,15 +542,35 @@ impl ReBuilder {
 
     fn star_opt(&mut self, r: Regex) -> Regex {
         if r.none().unwrap_or(false) || r.epsilon().unwrap_or(false) {
-            self.epsilon()
-        } else if let ReOp::Star(_) = &r.op() {
-            // Flatten nested stars
-            r.clone()
-        } else if let ReOp::Plus(rr) = &r.op() {
-            // Flatten (R+)* = R*
-            self.intern(ReOp::Star(rr.clone()))
-        } else {
-            self.intern(ReOp::Star(r))
+            return self.epsilon();
+        }
+
+        // If r is e+ or e* or e? then return e
+        // Otherwise, return r
+        fn stip_closures(r: Regex) -> Regex {
+            match r.op() {
+                ReOp::Star(inner) | ReOp::Plus(inner) | ReOp::Opt(inner) => inner.clone(),
+                _ => r,
+            }
+        }
+
+        match r.op() {
+            ReOp::Union(rs) => {
+                // Strip closures from each branch
+                let rs = rs.iter().map(|r| stip_closures(r.clone())).collect();
+                let u = self.union(rs);
+                self.intern(ReOp::Star(u))
+            }
+            ReOp::Star(_) => {
+                // Flatten nested stars
+                r.clone()
+            }
+            ReOp::Plus(rr) | ReOp::Opt(rr) => {
+                // Flatten (R+)* = R*
+                // Flatten (R?)* = R*
+                self.star(rr.clone())
+            }
+            _ => self.intern(ReOp::Star(r)),
         }
     }
 
@@ -579,18 +599,47 @@ impl ReBuilder {
     }
 
     fn plus_opt(&mut self, r: Regex) -> Regex {
+        // (∅)+ = ∅
         if r.none().unwrap_or(false) {
-            self.none()
-        } else if r.epsilon().unwrap_or(false) {
-            self.epsilon()
-        } else if let ReOp::Plus(_) = &r.op() {
-            // Flatten nested pluses
-            r.clone()
-        } else if let ReOp::Star(_) = &r.op() {
-            // Flatten (R*)+ = R*
-            r.clone()
-        } else {
-            self.intern(ReOp::Plus(r))
+            return self.none();
+        }
+
+        // If r is e+ return e
+        // Otherwise, return r
+        fn stip_plus(r: Regex) -> Regex {
+            match r.op() {
+                ReOp::Plus(inner) => inner.clone(),
+                _ => r,
+            }
+        }
+
+        // ε+ = ε
+        if r.epsilon().unwrap_or(false) {
+            return self.epsilon();
+        }
+
+        if r.nullable() {
+            // (R)+ = R* with R nullable
+            if let ReOp::Star(inner) = r.op() {
+                return self.star(inner.clone());
+            }
+        }
+
+        match r.op() {
+            // (R+)+ → R+
+            ReOp::Plus(_) => r.clone(),
+
+            // (R*)+ → R*
+            ReOp::Star(inner) => self.star(inner.clone()),
+
+            // (⋃ R_i+)+ → (⋃ R_i)+ → ⋃ R_i+
+            ReOp::Union(rs) => {
+                let rs = rs.iter().map(|r| stip_plus(r.clone())).collect();
+                let u = self.union(rs);
+                self.intern(ReOp::Plus(u))
+            }
+
+            _ => self.intern(ReOp::Plus(r)),
         }
     }
 

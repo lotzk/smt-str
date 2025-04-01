@@ -138,21 +138,38 @@ impl Thompson {
 
     /// Creates an NFA accepting the union of the given NFAs
     fn union(&mut self, rs: &[Regex], builder: &mut ReBuilder) -> NFA {
+        match rs.len() {
+            0 => return NFA::new(),                        // ∅
+            1 => return self.compile_rec(&rs[0], builder), // no need to union
+            _ => {}
+        }
+
+        let mut sub_nfas = Vec::with_capacity(rs.len());
+
+        for r in rs {
+            if r.none().unwrap_or(false) {
+                continue;
+            }
+            let nfa_r = self.compile_rec(r, builder);
+            if nfa_r.num_states() > 0 {
+                sub_nfas.push(nfa_r);
+            }
+        }
+
         let mut nfa = NFA::new();
         let q0 = nfa.new_state();
 
-        for r in rs {
-            let nfa_r = self.compile_rec(r, builder);
-
+        for nfa_r in sub_nfas {
             let offset = nfa.merge(&nfa_r);
-            if let Some(initial) = nfa_r.initial() {
-                nfa.add_transition(q0, initial + offset, TransitionType::Epsilon)
+            if let Some(init) = nfa_r.initial() {
+                nfa.add_transition(q0, init + offset, TransitionType::Epsilon)
                     .unwrap();
             }
             for qf in nfa_r.finals() {
                 nfa.add_final(qf + offset).unwrap();
             }
         }
+
         nfa.set_initial(q0).unwrap();
         nfa
     }
@@ -233,6 +250,35 @@ impl Thompson {
             nfa.set_initial(new_q0).unwrap();
         }
         nfa
+    }
+
+    /// Creates and automaton recognizing the Kleene closure of the given character range
+    /// This needs just as single state with a self-loop that accepts any character in the range.
+    fn star_range(&mut self, range: CharRange) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q0).unwrap();
+        nfa.add_transition(q0, q0, TransitionType::Range(range))
+            .unwrap();
+        nfa
+    }
+
+    /// Creates an NFA accepting the Kleene closure of the given word
+    /// This needs |word| + 1 states, which is less than the general Kleene star.
+    fn star_word(&mut self, word: &SmtString) -> NFA {
+        let mut word_nfa = self.word(word);
+        let q0 = word_nfa.initial().unwrap();
+        let qf = word_nfa.finals().next().unwrap();
+
+        word_nfa
+            .add_transition(qf, q0, TransitionType::Epsilon)
+            .unwrap();
+        word_nfa
+            .add_transition(q0, qf, TransitionType::Epsilon)
+            .unwrap();
+
+        word_nfa
     }
 
     /// Creates an NFA accepting the Kleene plus, i.e., the positive closure, of the given NFA
@@ -362,7 +408,11 @@ impl Thompson {
             ReOp::Concat(rs) => self.concat(rs, builder),
             ReOp::Union(rs) => self.union(rs, builder),
             ReOp::Inter(rs) => self.inter(rs, builder),
-            ReOp::Star(r) => self.star(r, builder),
+            ReOp::Star(r) => match r.op() {
+                ReOp::Range(r) => self.star_range(*r),
+                ReOp::Literal(w) => self.star_word(w),
+                _ => self.star(r, builder),
+            },
             ReOp::Plus(r) => self.plus(r, builder),
             ReOp::Opt(r) => self.opt(r, builder),
             ReOp::Range(r) => self.range(*r),
