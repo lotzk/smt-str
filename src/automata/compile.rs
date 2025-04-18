@@ -12,6 +12,8 @@ use super::comp::complement;
 use super::inter::intersect;
 use super::{TransitionType, NFA};
 
+use smallvec::smallvec;
+
 /// Compiles the given regex into an NFA.
 /// The NFA accepts exactly the language of the regex.
 /// The NFA is constructed using the Thompson construction.
@@ -136,21 +138,38 @@ impl Thompson {
 
     /// Creates an NFA accepting the union of the given NFAs
     fn union(&mut self, rs: &[Regex], builder: &mut ReBuilder) -> NFA {
+        match rs.len() {
+            0 => return NFA::new(),                        // ∅
+            1 => return self.compile_rec(&rs[0], builder), // no need to union
+            _ => {}
+        }
+
+        let mut sub_nfas = Vec::with_capacity(rs.len());
+
+        for r in rs {
+            if r.none().unwrap_or(false) {
+                continue;
+            }
+            let nfa_r = self.compile_rec(r, builder);
+            if nfa_r.num_states() > 0 {
+                sub_nfas.push(nfa_r);
+            }
+        }
+
         let mut nfa = NFA::new();
         let q0 = nfa.new_state();
 
-        for r in rs {
-            let nfa_r = self.compile_rec(r, builder);
-
+        for nfa_r in sub_nfas {
             let offset = nfa.merge(&nfa_r);
-            if let Some(initial) = nfa_r.initial() {
-                nfa.add_transition(q0, initial + offset, TransitionType::Epsilon)
+            if let Some(init) = nfa_r.initial() {
+                nfa.add_transition(q0, init + offset, TransitionType::Epsilon)
                     .unwrap();
             }
             for qf in nfa_r.finals() {
                 nfa.add_final(qf + offset).unwrap();
             }
         }
+
         nfa.set_initial(q0).unwrap();
         nfa
     }
@@ -233,6 +252,35 @@ impl Thompson {
         nfa
     }
 
+    /// Creates and automaton recognizing the Kleene closure of the given character range
+    /// This needs just as single state with a self-loop that accepts any character in the range.
+    fn star_range(&mut self, range: CharRange) -> NFA {
+        let mut nfa = NFA::new();
+        let q0 = nfa.new_state();
+        nfa.set_initial(q0).unwrap();
+        nfa.add_final(q0).unwrap();
+        nfa.add_transition(q0, q0, TransitionType::Range(range))
+            .unwrap();
+        nfa
+    }
+
+    /// Creates an NFA accepting the Kleene closure of the given word
+    /// This needs |word| + 1 states, which is less than the general Kleene star.
+    fn star_word(&mut self, word: &SmtString) -> NFA {
+        let mut word_nfa = self.word(word);
+        let q0 = word_nfa.initial().unwrap();
+        let qf = word_nfa.finals().next().unwrap();
+
+        word_nfa
+            .add_transition(qf, q0, TransitionType::Epsilon)
+            .unwrap();
+        word_nfa
+            .add_transition(q0, qf, TransitionType::Epsilon)
+            .unwrap();
+
+        word_nfa
+    }
+
     /// Creates an NFA accepting the Kleene plus, i.e., the positive closure, of the given NFA
     fn plus(&mut self, r: &Regex, builder: &mut ReBuilder) -> NFA {
         // Same as Kleene star but we omit the transition that goes from the new initial to the new final, i.e., the transition that "skips" the inner regex.
@@ -300,15 +348,49 @@ impl Thompson {
     /// Creates an NFA accepting the loop of the given regex
     /// That is, accepts at least `lower` and at most `upper` repetitions of the regex.
     fn loop_(&mut self, regex: &Regex, lower: u32, upper: u32, builder: &mut ReBuilder) -> NFA {
-        let mut rs = Vec::with_capacity(upper as usize);
-        for i in 0..upper {
-            if i >= lower {
-                rs.push(builder.opt(regex.clone()));
-            } else {
-                rs.push(regex.clone());
-            }
+        let pow_unrolling = self.bounded_loop(regex, lower, upper, builder);
+        self.compile_rec(&pow_unrolling, builder)
+    }
+
+    /// Constructs a regex that accepts between `lower` and `upper` repetitions of `regex`,
+    /// using power-of-two unrolling to minimize regex size.
+    ///
+    /// This avoids generating `upper` copies of `regex` by:
+    /// - Concatenating `lower` required copies of `regex`
+    /// - Adding optional chunks of `1`, `2`, `4`, `8`, ... repetitions, depending on `upper - lower`
+    ///
+    /// For example, with `lower = 0` and `upper = 253`, it builds:
+    ///     (R^1)? (R^2)? (R^4)? (R^8)? (R^16)? (R^32)? (R^64)? (R^128)?
+    fn bounded_loop(
+        &mut self,
+        regex: &Regex,
+        lower: u32,
+        upper: u32,
+        builder: &mut ReBuilder,
+    ) -> Regex {
+        assert!(lower <= upper);
+
+        // Required part: concat lower copies
+        let mut acc = if lower > 0 {
+            smallvec![regex.clone(); lower as usize]
+        } else {
+            smallvec![]
+        };
+
+        // Optional part: power-of-two unrolling
+        let mut optional_reps = upper - lower;
+        let mut chunk = 1;
+
+        while optional_reps > 0 {
+            let reps = std::cmp::min(chunk, optional_reps);
+            let repeated = builder.concat(smallvec![regex.clone(); reps as usize]);
+            let optional = builder.opt(repeated);
+            acc.push(optional);
+            optional_reps -= reps;
+            chunk *= 2;
         }
-        self.concat(&rs, builder)
+
+        builder.concat(acc)
     }
 
     fn compile_rec(&mut self, regex: &Regex, builder: &mut ReBuilder) -> NFA {
@@ -326,7 +408,11 @@ impl Thompson {
             ReOp::Concat(rs) => self.concat(rs, builder),
             ReOp::Union(rs) => self.union(rs, builder),
             ReOp::Inter(rs) => self.inter(rs, builder),
-            ReOp::Star(r) => self.star(r, builder),
+            ReOp::Star(r) => match r.op() {
+                ReOp::Range(r) => self.star_range(*r),
+                ReOp::Literal(w) => self.star_word(w),
+                _ => self.star(r, builder),
+            },
             ReOp::Plus(r) => self.plus(r, builder),
             ReOp::Opt(r) => self.opt(r, builder),
             ReOp::Range(r) => self.range(*r),
@@ -396,7 +482,7 @@ mod test {
     #[test]
     fn test_compile_any() {
         let mut builder = ReBuilder::default();
-        let re = builder.any_char();
+        let re = builder.allchar();
         let nfa = test_acceptance(&re, &mut builder, &["a".into()], &["".into(), "ab".into()]);
         assert_eq!(nfa.states().count(), 2);
     }
@@ -635,7 +721,7 @@ mod test {
     #[quickcheck]
     fn test_compile_plus_of_any(w: SmtString) {
         let mut builder = ReBuilder::default();
-        let any = builder.any_char();
+        let any = builder.allchar();
         let re = builder.plus(any);
         if w.is_empty() {
             test_acceptance(&re, &mut builder, &[], &[w]);

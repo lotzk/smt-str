@@ -4,12 +4,14 @@ pub mod det;
 mod dot;
 pub mod inter;
 
+use std::collections::BinaryHeap;
 use std::error::Error;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt::Display,
 };
 
+use crate::alphabet::Alphabet;
 use crate::{
     alphabet::{partition::AlphabetPartitionMap, CharRange},
     SmtChar, SmtString,
@@ -96,9 +98,13 @@ impl State {
     }
 
     /// Adds a transition to the state.
+    /// If the transition already exists, it is not added again.
+    /// Needs a linear scan over the transitions to check for duplicates.
     fn add_transition(&mut self, label: TransitionType, destination: StateId) {
         let transition = Transition { label, destination };
-        self.transitions.push(transition);
+        if !self.transitions.contains(&transition) {
+            self.transitions.push(transition);
+        }
     }
 
     /// Consumes the input character and returns the set of states that can be reached from this state.
@@ -439,6 +445,32 @@ impl NFA {
         aut
     }
 
+    /// Compresesses transitions from a state if they have the same destination but their ranges overlap or are adjacent.
+    /// If there are two transitions from state q to state p with ranges r1 and r2 and the ranges can be merged into a single range r, then the transitions are replaced by a single transition from q to p with range r.
+    pub fn compress_ranges(&mut self) {
+        for q in self.states() {
+            let mut dest_map = HashMap::new();
+            let mut compressed: Vec<Transition> = Vec::new();
+            for t in self.transitions_from(q).unwrap() {
+                match t.get_type() {
+                    TransitionType::Range(r) => dest_map
+                        .entry(t.get_dest())
+                        .or_insert_with(Alphabet::default)
+                        .insert(*r),
+                    _ => compressed.push(t.clone()),
+                }
+            }
+
+            for (d, ranges) in dest_map {
+                for r in ranges.iter_ranges() {
+                    compressed.push(Transition::new(TransitionType::Range(r), d));
+                }
+            }
+
+            self.states[q].transitions = compressed;
+        }
+    }
+
     /// Returns the epsilon closure of a state.
     /// The epsilon closure of a state is the set of states that can be reached from the state by following epsilon transitions.
     /// If the state is not a valid state index, an error is returned.
@@ -592,6 +624,92 @@ impl NFA {
             }
         }
         None
+    }
+
+    /// Compute the length of the shortest path from the initial state to any state.
+    /// Returns a map from state indices to the length of the shortest path to that state.
+    /// Epsilon transitions are not counted in the path length, i.e., an epsilon transition has length 0.
+    ///
+    /// If a state is not reachable from the initial state, it is not included in the map.
+    /// In particular, if the automaton has no final states, the map is empty.
+    pub fn lengths_from_initial(&self) -> HashMap<StateId, usize> {
+        if let Some(q0) = self.initial {
+            self.shortest_paths(&[q0])
+        } else {
+            HashMap::new()
+        }
+    }
+
+    /// Compute the length of the shortest path to a final state from any state.
+    /// Returns a map from state indices to the length of the shortest path to a final state from that state.
+    /// Epsilon transitions are not counted in the path length, i.e., an epsilon transition has length 0.
+    ///
+    /// If a state cannot reach a final state, it is not included in the map.
+    /// If the automaton has no final states, the map is empty.
+    pub fn lengths_to_final(&self) -> HashMap<StateId, usize> {
+        let reversed = self.reversed();
+        reversed.lengths_from_initial()
+    }
+
+    /// Computes the length of the shortest paths from the states in `sources` to any state.
+    /// Returns a map from state indices to the length of the shortest path to that state from any of the sources.
+    fn shortest_paths(&self, sources: &[StateId]) -> HashMap<StateId, usize> {
+        let mut queue = BinaryHeap::new();
+        let mut length = HashMap::new();
+
+        for &q0 in sources {
+            queue.push((0, q0));
+            length.insert(q0, 0);
+        }
+
+        while let Some((len, q)) = queue.pop() {
+            for t in self.transitions_from(q).unwrap() {
+                let d = if t.is_epsilon() { 0 } else { 1 };
+                let dest = t.get_dest();
+                let new_len = len + d;
+                if !length.contains_key(&dest) || new_len < length[&dest] {
+                    length.insert(dest, new_len);
+                    queue.push((new_len, dest));
+                }
+            }
+        }
+
+        length
+    }
+
+    /// Reverse the automaton. The resulting automaton
+    ///
+    /// - has all transitions reversed,
+    /// - has a new initial state with and epsilon transition to every old final states,
+    /// - has all old initial states as final states.
+    ///
+    /// The reversed automaton accepts the reverse of the language of the original automaton.
+    pub fn reversed(&self) -> Self {
+        let mut aut = self.clone();
+        aut.finals.clear();
+        aut.initial = None;
+        // Reverse transitions
+        for q in aut.states() {
+            let transitions = aut.states[q].transitions.clone();
+            aut.states[q].transitions.clear();
+            for t in transitions {
+                aut.add_transition(t.destination, q, t.label).unwrap();
+            }
+        }
+
+        // Create a new initial state with epsilon transitions to all old final states
+        let q0 = aut.new_state();
+        aut.set_initial(q0).unwrap();
+        for f in self.finals() {
+            aut.add_transition(q0, f, TransitionType::Epsilon).unwrap();
+        }
+
+        // Set the old initial states as final states
+        if let Some(q0) = self.initial() {
+            aut.add_final(q0).unwrap();
+        }
+
+        aut
     }
 
     /// Returns whether the automaton is empty.

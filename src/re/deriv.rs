@@ -190,7 +190,7 @@ mod test {
     #[test]
     fn deriv_all_char_builder() {
         let mut builder = ReBuilder::non_optimizing();
-        let r = builder.any_char();
+        let r = builder.allchar();
         let expected = builder.epsilon();
         assert_eq!(deriv(&r, 'f', &mut builder), expected);
     }

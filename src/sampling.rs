@@ -10,18 +10,33 @@ use crate::{
 
 /// Tries to sample a word that is accepted by the regex.
 /// The function aborts if no word is found after `max_depth` steps.
-pub fn sample_regex(regex: &Regex, builder: &mut ReBuilder, max_depth: usize) -> Option<SmtString> {
+/// If `comp` is set to `true`, the function will return a word that is not accepted by the regex.
+/// In other words, the function will sample a word from the complement of the regex's language.
+pub fn sample_regex(
+    regex: &Regex,
+    builder: &mut ReBuilder,
+    max_depth: usize,
+    comp: bool,
+) -> Option<SmtString> {
     let mut w = SmtString::empty();
     let mut deriver = DerivativeBuilder::default();
 
     let mut i = 0;
     let mut re = regex.clone();
 
-    if re.nullable() {
+    let done = |re: &Regex| {
+        if comp {
+            !re.nullable()
+        } else {
+            re.nullable()
+        }
+    };
+
+    if done(&re) {
         return Some(w);
     }
 
-    while !re.nullable() && i < max_depth {
+    while !done(&re) && i < max_depth {
         let next = re
             .first()
             .iter()
@@ -32,7 +47,7 @@ pub fn sample_regex(regex: &Regex, builder: &mut ReBuilder, max_depth: usize) ->
         i += 1;
     }
 
-    if re.nullable() {
+    if done(&re) {
         Some(w)
     } else {
         None
@@ -43,7 +58,9 @@ pub fn sample_regex(regex: &Regex, builder: &mut ReBuilder, max_depth: usize) ->
 /// Randomly picks transitions to follow until a final state is reached.
 /// Once a final state is reached, the function returns the word that was sampled.
 /// The function aborts and returns `None` if no word is found after `max_depth` transitions.
-pub fn sample_nfa(nfa: &NFA, max: usize) -> Option<SmtString> {
+/// If `comp` is set to `true`, the function will return a word that is not accepted by the NFA.
+/// In other words, the function will sample a word from the complement of the NFA's language.
+pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> Option<SmtString> {
     let mut w = SmtString::empty();
 
     let mut states = BitSet::new();
@@ -52,10 +69,18 @@ pub fn sample_nfa(nfa: &NFA, max: usize) -> Option<SmtString> {
     }
     let mut i = 0;
 
+    let done = |s: &BitSet| {
+        if comp {
+            !s.iter().any(|q| nfa.is_final(q))
+        } else {
+            s.iter().any(|q| nfa.is_final(q))
+        }
+    };
+
     while i <= max {
         i += 1;
         // Check if the current state set contains a final state
-        if states.iter().any(|q| nfa.is_final(q)) {
+        if done(&states) {
             return Some(w);
         }
 
@@ -106,9 +131,15 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.to_re("foo".into());
 
-        assert_eq!(sample_regex(&regex, &mut builder, 3), Some("foo".into()));
-        assert_eq!(sample_regex(&regex, &mut builder, 10), Some("foo".into()));
-        assert_eq!(sample_regex(&regex, &mut builder, 2), None);
+        assert_eq!(
+            sample_regex(&regex, &mut builder, 3, false),
+            Some("foo".into())
+        );
+        assert_eq!(
+            sample_regex(&regex, &mut builder, 10, false),
+            Some("foo".into())
+        );
+        assert_eq!(sample_regex(&regex, &mut builder, 2, false), None);
     }
 
     #[test]
@@ -123,7 +154,7 @@ mod tests {
         let regex = builder.concat(smallvec![fo, o_or_bar]);
 
         // Test matching "foo"
-        assert!(sample_regex(&regex, &mut builder, 5).is_some());
+        assert!(sample_regex(&regex, &mut builder, 5, false).is_some());
     }
 
     #[quickcheck]
@@ -131,9 +162,9 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.range(range);
 
-        assert!(sample_regex(&regex, &mut builder, 1).is_some());
+        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
         // Test matching word within the class
-        assert!(sample_regex(&regex, &mut builder, 3).is_some());
+        assert!(sample_regex(&regex, &mut builder, 3, false).is_some());
     }
 
     #[quickcheck]
@@ -141,9 +172,9 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.range(range);
 
-        assert!(sample_regex(&regex, &mut builder, 1).is_some());
+        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
         // Test matching word within the class
-        assert!(sample_regex(&regex, &mut builder, 3).is_some());
+        assert!(sample_regex(&regex, &mut builder, 3, false).is_some());
     }
 
     #[quickcheck]
@@ -154,9 +185,9 @@ mod tests {
         let regex = builder.pow(regex, n);
 
         for i in 0..n {
-            assert!(sample_regex(&regex, &mut builder, i as usize).is_none());
+            assert!(sample_regex(&regex, &mut builder, i as usize, false).is_none());
         }
-        assert!(sample_regex(&regex, &mut builder, n as usize).is_some());
+        assert!(sample_regex(&regex, &mut builder, n as usize, false).is_some());
     }
 
     #[quickcheck]
@@ -167,9 +198,9 @@ mod tests {
         let regex = builder.union(rs);
 
         if n > 0 {
-            assert!(sample_regex(&regex, &mut builder, 1).is_some());
+            assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
         } else {
-            assert!(sample_regex(&regex, &mut builder, 10).is_none());
+            assert!(sample_regex(&regex, &mut builder, 10, false).is_none());
         }
     }
 
@@ -191,9 +222,9 @@ mod tests {
         let regex = builder.union(rs);
 
         if n > 0 {
-            assert!(sample_regex(&regex, &mut builder, 1).is_some());
+            assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
         } else {
-            assert!(sample_regex(&regex, &mut builder, 10).is_none());
+            assert!(sample_regex(&regex, &mut builder, 10, false).is_none());
         }
     }
 
@@ -203,8 +234,8 @@ mod tests {
         let r = builder.range(r);
         let regex = builder.opt(r);
 
-        assert!(sample_regex(&regex, &mut builder, 0).is_some());
-        assert!(sample_regex(&regex, &mut builder, 1).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
     }
 
     #[test]
@@ -212,7 +243,7 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.epsilon();
 
-        assert!(sample_regex(&regex, &mut builder, 0).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
     }
 
     #[test]
@@ -220,8 +251,8 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.none();
 
-        assert!(sample_regex(&regex, &mut builder, 0).is_none());
-        assert!(sample_regex(&regex, &mut builder, 20).is_none());
+        assert!(sample_regex(&regex, &mut builder, 0, false).is_none());
+        assert!(sample_regex(&regex, &mut builder, 20, false).is_none());
     }
 
     #[test]
@@ -229,17 +260,17 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.all();
 
-        assert!(sample_regex(&regex, &mut builder, 0).is_some());
-        assert!(sample_regex(&regex, &mut builder, 20).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 20, false).is_some());
     }
 
     #[test]
     fn sample_any() {
         let mut builder = ReBuilder::default();
-        let regex = builder.any_char();
+        let regex = builder.allchar();
 
-        assert!(sample_regex(&regex, &mut builder, 0).is_none());
-        assert!(sample_regex(&regex, &mut builder, 20).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).is_none());
+        assert!(sample_regex(&regex, &mut builder, 20, false).is_some());
     }
 
     #[test]
@@ -254,7 +285,7 @@ mod tests {
         nfa.add_transition(q0, q1, TransitionType::Range(CharRange::new('a', 'a')))
             .unwrap();
 
-        let sample = sample_nfa(&nfa, 10);
+        let sample = sample_nfa(&nfa, 10, false);
         assert_eq!(sample, Some(SmtString::from("a")));
     }
 
@@ -267,7 +298,7 @@ mod tests {
         nfa.set_initial(q0).unwrap();
         nfa.add_final(q1).unwrap();
 
-        let sample = sample_nfa(&nfa, 10);
+        let sample = sample_nfa(&nfa, 10, false);
         assert_eq!(sample, None);
     }
 
@@ -285,7 +316,7 @@ mod tests {
         nfa.add_transition(q1, q2, TransitionType::Range(CharRange::new('b', 'b')))
             .unwrap();
 
-        let sample = sample_nfa(&nfa, 10);
+        let sample = sample_nfa(&nfa, 10, false);
         assert_eq!(sample, Some(SmtString::from("b")));
     }
 
@@ -305,7 +336,7 @@ mod tests {
         nfa.add_transition(q1, q2, TransitionType::Range(CharRange::new('a', 'z')))
             .unwrap();
 
-        let sample = sample_nfa(&nfa, 1); // Very low max depth
+        let sample = sample_nfa(&nfa, 1, false); // Very low max depth
         assert_eq!(sample, None); // Should not reach q2 in one step
     }
 
@@ -321,7 +352,7 @@ mod tests {
         nfa.add_transition(q0, q1, TransitionType::NotRange(CharRange::new('x', 'z')))
             .unwrap();
 
-        let sample = sample_nfa(&nfa, 10);
+        let sample = sample_nfa(&nfa, 10, false);
         assert!(sample.is_some()); // Should produce a valid word
         if let Some(word) = sample {
             assert!(
@@ -350,7 +381,7 @@ mod tests {
         nfa.add_transition(q2, q3, TransitionType::Range(CharRange::new('y', 'y')))
             .unwrap();
 
-        let sample = sample_nfa(&nfa, 10);
+        let sample = sample_nfa(&nfa, 10, false);
         assert!(sample == Some(SmtString::from("ab")) || sample == Some(SmtString::from("xy")));
     }
 
@@ -368,7 +399,7 @@ mod tests {
         nfa.add_transition(q0, q1, TransitionType::Range(CharRange::singleton('b')))
             .unwrap();
 
-        match sample_nfa(&nfa, 100) {
+        match sample_nfa(&nfa, 100, false) {
             Some(w) => {
                 let l = w.len();
                 let mut expected = SmtString::from("a").repeat(l - 1);

@@ -1,6 +1,8 @@
 # `smt-str`
 
 [![CI](https://github.com/lotzk/smt-str/actions/workflows/build.yml/badge.svg)](https://github.com/lotzk/smt-str/actions/workflows/build.yml)
+[![Crates.io](https://img.shields.io/crates/v/smt-str)](https://crates.io/crates/smt-str)
+[![Docs.rs](https://docs.rs/smt-str/badge.svg)](https://docs.rs/smt-str)
 
 **A Rust crate for working with SMT-LIB strings, regular expressions, and automata.**
 
