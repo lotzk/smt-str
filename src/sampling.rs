@@ -151,7 +151,7 @@ mod tests {
         let n = n % 100;
         let mut builder = ReBuilder::default();
         let regex = builder.range(range);
-        let regex = builder.pow(regex, n as u32);
+        let regex = builder.pow(regex, n);
 
         for i in 0..n {
             assert!(sample_regex(&regex, &mut builder, i as usize).is_none());

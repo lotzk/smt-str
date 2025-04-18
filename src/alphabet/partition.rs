@@ -740,11 +740,11 @@ mod test {
         let r2 = CharRange::new(3u32, 6u32);
         let r3 = CharRange::new(1u32, 4u32);
         let mut part = AlphabetPartition::empty();
-        part = part.refine(&AlphabetPartition::singleton(r1.clone()));
+        part = part.refine(&AlphabetPartition::singleton(r1));
 
-        part = part.refine(&AlphabetPartition::singleton(r2.clone()));
+        part = part.refine(&AlphabetPartition::singleton(r2));
 
-        part = part.refine(&AlphabetPartition::singleton(r3.clone()));
+        part = part.refine(&AlphabetPartition::singleton(r3));
 
         let mut iter = part.iter();
         assert_eq!(iter.next(), Some(&CharRange::new(1u32, 1u32)));
@@ -764,7 +764,7 @@ mod test {
     #[test]
     fn test_singleton_partitioning() {
         let range = CharRange::new('a', 'z');
-        let partitioning = AlphabetPartitionMap::singleton(range.clone(), 1);
+        let partitioning = AlphabetPartitionMap::singleton(range, 1);
         assert_eq!(partitioning.get(&range), Some(&1));
     }
 
@@ -776,8 +776,8 @@ mod test {
         let range1 = CharRange::new('a', 'f');
         let range2 = CharRange::new('g', 'z');
 
-        assert_eq!(partitioning.insert(range1.clone(), 1), Ok(()));
-        assert_eq!(partitioning.insert(range2.clone(), 2), Ok(()));
+        assert_eq!(partitioning.insert(range1, 1), Ok(()));
+        assert_eq!(partitioning.insert(range2, 2), Ok(()));
         assert_eq!(partitioning.get(&range1), Some(&1));
         assert_eq!(partitioning.get(&range2), Some(&2));
     }
@@ -790,13 +790,10 @@ mod test {
         let range1 = CharRange::new('a', 'm');
         let overlapping_range = CharRange::new('g', 'z');
 
-        assert_eq!(partitioning.insert(range1.clone(), 1), Ok(()));
+        assert_eq!(partitioning.insert(range1, 1), Ok(()));
 
         // Insert overlapping range, expect an error
-        assert_eq!(
-            partitioning.insert(overlapping_range.clone(), 2),
-            Err(range1)
-        );
+        assert_eq!(partitioning.insert(overlapping_range, 2), Err(range1));
     }
 
     #[test]
@@ -804,11 +801,11 @@ mod test {
         let mut partitioning = AlphabetPartitionMap::empty();
 
         let range = CharRange::new('a', 'z');
-        partitioning.insert_unchecked(range.clone(), 1);
+        partitioning.insert_unchecked(range, 1);
         assert_eq!(partitioning.get(&range), Some(&1));
 
         // Now remove the range and check if it's gone
-        partitioning.remove(range.clone());
+        partitioning.remove(range);
         assert_eq!(partitioning.get(&range), None);
     }
 

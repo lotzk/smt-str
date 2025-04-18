@@ -369,13 +369,13 @@ mod test {
         neg: &[SmtString],
     ) -> NFA {
         let thompson = Thompson::default();
-        let nfa = thompson.compile(&re, builder);
+        let nfa = thompson.compile(re, builder);
         for p in pos {
-            assert!(nfa.accepts(&p), "Expected NFA for {} to accept {}", re, p);
+            assert!(nfa.accepts(p), "Expected NFA for {} to accept {}", re, p);
         }
         for n in neg {
             assert!(
-                !nfa.accepts(&n),
+                !nfa.accepts(n),
                 "Expected NFA for {} to reject {}\n{}",
                 re,
                 n,
@@ -443,7 +443,7 @@ mod test {
 
         let mut alph = Alphabet::empty();
         for r in rs.iter() {
-            alph.insert(r.clone());
+            alph.insert(*r);
         }
 
         let th = Thompson::default();
