@@ -1492,9 +1492,7 @@ mod tests {
         let r = builder.regex(&Rc::new(r));
         let pow = builder.pow(r.clone(), e);
 
-        if e == 0 {
-            assert!(pow.nullable());
-        } else if r.nullable() {
+        if e == 0 || r.nullable() {
             assert!(pow.nullable());
         } else {
             assert!(!pow.nullable());
@@ -1792,12 +1790,9 @@ mod tests {
 
         let mut expected = if rs.is_empty() { Some(false) } else { None };
         for r in rs {
-            match r.universal() {
-                Some(true) => {
-                    expected = Some(true);
-                    break;
-                }
-                _ => {}
+            if let Some(true) = r.universal() {
+                expected = Some(true);
+                break;
             }
         }
         assert_eq!(union.universal(), expected);
