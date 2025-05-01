@@ -4,9 +4,37 @@ use rand::{rng, seq::IteratorRandom};
 
 use crate::{
     automata::{TransitionType, NFA},
-    re::{deriv::DerivativeBuilder, ReBuilder, Regex},
+    re::{deriv::DerivativeBuilder, ReBuilder, ReOp, Regex},
     SmtString,
 };
+
+/// The result of sampling from a regex or automaton.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum SampleResult {
+    /// Founda word in the language
+    Sampled(SmtString),
+    /// The language tried to sample from is empty
+    Empty,
+    /// Maximum depth was reached without finding a word.
+    MaxDepth,
+}
+
+impl SampleResult {
+    /// Unwraps the sampled string.
+    /// Panics if the sampling was not successfull.
+    pub fn unwrap(self) -> SmtString {
+        match self {
+            SampleResult::Sampled(s) => s,
+            _ => panic!("called `unwrap` on empty value"),
+        }
+    }
+
+    /// Return true if sampling was successfull and this result carries a value.
+    /// Othwerwise returns false.
+    pub fn success(&self) -> bool {
+        matches!(self, SampleResult::Sampled(_))
+    }
+}
 
 /// Tries to sample a word that is accepted by the regex.
 /// The function aborts if no word is found after `max_depth` steps.
@@ -17,7 +45,95 @@ pub fn sample_regex(
     builder: &mut ReBuilder,
     max_depth: usize,
     comp: bool,
-) -> Option<SmtString> {
+) -> SampleResult {
+    fn fast_sample(re: &Regex, d: usize, max: usize) -> SampleResult {
+        if d > max {
+            return SampleResult::MaxDepth;
+        }
+        match re.op() {
+            ReOp::Literal(w) => SampleResult::Sampled(w.clone()),
+            ReOp::Range(r) => {
+                if let Some(r) = r.choose().map(|c| c.into()) {
+                    SampleResult::Sampled(r)
+                } else {
+                    SampleResult::Empty
+                }
+            }
+            ReOp::None => SampleResult::Empty,
+            ReOp::Any | ReOp::All => SampleResult::Sampled(SmtString::from("a")),
+            ReOp::Concat(rs) => {
+                let mut res = SmtString::empty();
+                for r in rs {
+                    match fast_sample(r, d + 1, max) {
+                        SampleResult::Sampled(s) => res.append(&s),
+                        SampleResult::Empty => return SampleResult::Empty,
+                        SampleResult::MaxDepth => return SampleResult::MaxDepth,
+                    }
+                }
+                SampleResult::Sampled(res)
+            }
+            ReOp::Comp(comped) => match comped.op() {
+                ReOp::Literal(s) => {
+                    if s.is_empty() {
+                        SampleResult::Sampled("a".into())
+                    } else {
+                        SampleResult::Sampled(SmtString::empty())
+                    }
+                }
+                ReOp::Range(range) => {
+                    for c in range.complement() {
+                        if let Some(c) = c.choose() {
+                            return SampleResult::Sampled(c.into());
+                        }
+                    }
+                    SampleResult::Empty
+                }
+                ReOp::None => SampleResult::Sampled("a".into()),
+                ReOp::Any => SampleResult::Sampled("aa".into()),
+                ReOp::All => SampleResult::Empty,
+                ReOp::Comp(r) => fast_sample(r, d + 1, max), // Double complement
+                _ => SampleResult::MaxDepth,
+            },
+            ReOp::Union(rs) => {
+                let mut max_reached = false;
+                for r in rs {
+                    match fast_sample(r, d + 1, max) {
+                        SampleResult::Sampled(s) => return SampleResult::Sampled(s),
+                        SampleResult::Empty => (),
+                        SampleResult::MaxDepth => max_reached = true,
+                    }
+                }
+                if max_reached {
+                    SampleResult::MaxDepth
+                } else {
+                    SampleResult::Empty
+                }
+            }
+            ReOp::Star(_) | ReOp::Opt(_) => SampleResult::Sampled(SmtString::empty()),
+            ReOp::Plus(r) => fast_sample(r, d + 1, max),
+            ReOp::Pow(r, e) => match fast_sample(r, d + 1, max) {
+                SampleResult::Sampled(s) => SampleResult::Sampled(s.repeat(*e as usize)),
+                SampleResult::Empty => SampleResult::Empty,
+                SampleResult::MaxDepth => SampleResult::MaxDepth,
+            },
+            ReOp::Loop(r, l, u) if l <= u => match fast_sample(r, d + 1, max) {
+                SampleResult::Sampled(s) => SampleResult::Sampled(s.repeat(*l as usize)),
+                SampleResult::Empty => SampleResult::Empty,
+                SampleResult::MaxDepth => SampleResult::MaxDepth,
+            },
+            ReOp::Loop(_, _, _) => SampleResult::Empty,
+            _ => SampleResult::MaxDepth,
+        }
+    }
+
+    if !comp {
+        match fast_sample(regex, 0, max_depth) {
+            SampleResult::Sampled(s) => return SampleResult::Sampled(s),
+            SampleResult::Empty => return SampleResult::Empty,
+            SampleResult::MaxDepth => (),
+        }
+    }
+
     let mut w = SmtString::empty();
     let mut deriver = DerivativeBuilder::default();
 
@@ -33,34 +149,43 @@ pub fn sample_regex(
     };
 
     if done(&re) {
-        return Some(w);
+        return SampleResult::Sampled(w);
     }
 
     while !done(&re) && i < max_depth {
-        let next = re
+        let next = if let Some(c) = re
             .first()
             .iter()
             .choose(&mut rng())
-            .and_then(|c| c.choose())?;
+            .and_then(|c| c.choose())
+        {
+            c
+        } else {
+            return SampleResult::Empty;
+        };
         w.push(next);
         re = deriver.deriv(&re, next, builder);
         i += 1;
     }
 
     if done(&re) {
-        Some(w)
+        SampleResult::Sampled(w)
     } else {
-        None
+        SampleResult::MaxDepth
     }
 }
 
 /// Tries to sample a word that is accepted or not accepted by the NFA.
 /// Randomly picks transitions to follow until a final state is reached.
 /// Once a final state is reached, the function returns the word that was sampled.
-/// The function aborts and returns `None` if no word is found after `max_depth` transitions.
+/// The function aborts if no word is found after `max_depth` transitions.
 /// If `comp` is set to `true`, the function will return a word that is not accepted by the NFA.
 /// In other words, the function will sample a word from the complement of the NFA's language.
-pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> Option<SmtString> {
+///
+/// The NFA should be trim. Othwerwise the function returns `SampleResult::Empty` even though
+/// it is not. That happens if it runs into a state from which is cannot make progress anymore.
+/// Such states do not occur in trim automata.
+pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> SampleResult {
     let mut w = SmtString::empty();
 
     let mut states = BitSet::new();
@@ -81,7 +206,7 @@ pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> Option<SmtString> {
         i += 1;
         // Check if the current state set contains a final state
         if done(&states) {
-            return Some(w);
+            return SampleResult::Sampled(w);
         }
 
         // Collect all transitions from the current state set
@@ -90,7 +215,10 @@ pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> Option<SmtString> {
             transitions.extend(nfa.transitions_from(q).unwrap());
         }
         // Pick a random transition
-        let transition = transitions.iter().choose(&mut rng())?;
+        let transition = match transitions.iter().choose(&mut rng()) {
+            Some(t) => t,
+            None => return SampleResult::Empty,
+        };
         // Pick a random character from the transition
         let c = match transition.get_type() {
             TransitionType::Range(r) => r.choose(),
@@ -113,7 +241,7 @@ pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> Option<SmtString> {
         }
     }
 
-    None
+    SampleResult::MaxDepth
 }
 
 #[cfg(test)]
@@ -132,14 +260,13 @@ mod tests {
         let regex = builder.to_re("foo".into());
 
         assert_eq!(
-            sample_regex(&regex, &mut builder, 3, false),
-            Some("foo".into())
+            sample_regex(&regex, &mut builder, 3, false).unwrap(),
+            "foo".into()
         );
         assert_eq!(
-            sample_regex(&regex, &mut builder, 10, false),
-            Some("foo".into())
+            sample_regex(&regex, &mut builder, 10, false).unwrap(),
+            "foo".into()
         );
-        assert_eq!(sample_regex(&regex, &mut builder, 2, false), None);
     }
 
     #[test]
@@ -154,7 +281,7 @@ mod tests {
         let regex = builder.concat(smallvec![fo, o_or_bar]);
 
         // Test matching "foo"
-        assert!(sample_regex(&regex, &mut builder, 5, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 5, false).success());
     }
 
     #[quickcheck]
@@ -162,9 +289,9 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.range(range);
 
-        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 1, false).success());
         // Test matching word within the class
-        assert!(sample_regex(&regex, &mut builder, 3, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 3, false).success());
     }
 
     #[quickcheck]
@@ -172,9 +299,9 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.range(range);
 
-        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 1, false).success());
         // Test matching word within the class
-        assert!(sample_regex(&regex, &mut builder, 3, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 3, false).success());
     }
 
     #[quickcheck]
@@ -184,10 +311,7 @@ mod tests {
         let regex = builder.range(range);
         let regex = builder.pow(regex, n);
 
-        for i in 0..n {
-            assert!(sample_regex(&regex, &mut builder, i as usize, false).is_none());
-        }
-        assert!(sample_regex(&regex, &mut builder, n as usize, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, n as usize, false).success());
     }
 
     #[quickcheck]
@@ -198,9 +322,9 @@ mod tests {
         let regex = builder.union(rs);
 
         if n > 0 {
-            assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
+            assert!(sample_regex(&regex, &mut builder, 1, false).success());
         } else {
-            assert!(sample_regex(&regex, &mut builder, 10, false).is_none());
+            assert!(!sample_regex(&regex, &mut builder, 10, false).success());
         }
     }
 
@@ -222,9 +346,9 @@ mod tests {
         let regex = builder.union(rs);
 
         if n > 0 {
-            assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
+            assert!(sample_regex(&regex, &mut builder, 1, false).success());
         } else {
-            assert!(sample_regex(&regex, &mut builder, 10, false).is_none());
+            assert!(!sample_regex(&regex, &mut builder, 10, false).success());
         }
     }
 
@@ -234,8 +358,8 @@ mod tests {
         let r = builder.range(r);
         let regex = builder.opt(r);
 
-        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
-        assert!(sample_regex(&regex, &mut builder, 1, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).success());
+        assert!(sample_regex(&regex, &mut builder, 1, false).success());
     }
 
     #[test]
@@ -243,7 +367,7 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.epsilon();
 
-        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).success());
     }
 
     #[test]
@@ -251,8 +375,14 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.none();
 
-        assert!(sample_regex(&regex, &mut builder, 0, false).is_none());
-        assert!(sample_regex(&regex, &mut builder, 20, false).is_none());
+        assert_eq!(
+            sample_regex(&regex, &mut builder, 0, false),
+            SampleResult::Empty
+        );
+        assert_eq!(
+            sample_regex(&regex, &mut builder, 20, false),
+            SampleResult::Empty
+        );
     }
 
     #[test]
@@ -260,17 +390,15 @@ mod tests {
         let mut builder = ReBuilder::default();
         let regex = builder.all();
 
-        assert!(sample_regex(&regex, &mut builder, 0, false).is_some());
-        assert!(sample_regex(&regex, &mut builder, 20, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 0, false).success());
+        assert!(sample_regex(&regex, &mut builder, 20, false).success());
     }
 
     #[test]
     fn sample_any() {
         let mut builder = ReBuilder::default();
         let regex = builder.allchar();
-
-        assert!(sample_regex(&regex, &mut builder, 0, false).is_none());
-        assert!(sample_regex(&regex, &mut builder, 20, false).is_some());
+        assert!(sample_regex(&regex, &mut builder, 20, false).success());
     }
 
     #[test]
@@ -286,7 +414,7 @@ mod tests {
             .unwrap();
 
         let sample = sample_nfa(&nfa, 10, false);
-        assert_eq!(sample, Some(SmtString::from("a")));
+        assert_eq!(sample, SampleResult::Sampled(SmtString::from("a")));
     }
 
     #[test]
@@ -299,7 +427,7 @@ mod tests {
         nfa.add_final(q1).unwrap();
 
         let sample = sample_nfa(&nfa, 10, false);
-        assert_eq!(sample, None);
+        assert_eq!(sample, SampleResult::Empty);
     }
 
     #[test]
@@ -317,7 +445,7 @@ mod tests {
             .unwrap();
 
         let sample = sample_nfa(&nfa, 10, false);
-        assert_eq!(sample, Some(SmtString::from("b")));
+        assert_eq!(sample, SampleResult::Sampled(SmtString::from("b")));
     }
 
     #[test]
@@ -337,7 +465,7 @@ mod tests {
             .unwrap();
 
         let sample = sample_nfa(&nfa, 1, false); // Very low max depth
-        assert_eq!(sample, None); // Should not reach q2 in one step
+        assert_eq!(sample, SampleResult::MaxDepth); // Should not reach q2 in one step
     }
 
     #[test]
@@ -353,8 +481,8 @@ mod tests {
             .unwrap();
 
         let sample = sample_nfa(&nfa, 10, false);
-        assert!(sample.is_some()); // Should produce a valid word
-        if let Some(word) = sample {
+        assert!(sample.success()); // Should produce a valid word
+        if let SampleResult::Sampled(word) = sample {
             assert!(
                 !word.contains_char('x') && !word.contains_char('y') && !word.contains_char('z')
             );
@@ -382,7 +510,10 @@ mod tests {
             .unwrap();
 
         let sample = sample_nfa(&nfa, 10, false);
-        assert!(sample == Some(SmtString::from("ab")) || sample == Some(SmtString::from("xy")));
+        assert!(
+            sample == SampleResult::Sampled(SmtString::from("ab"))
+                || sample == SampleResult::Sampled(SmtString::from("xy"))
+        );
     }
 
     #[test]
@@ -400,13 +531,13 @@ mod tests {
             .unwrap();
 
         match sample_nfa(&nfa, 100, false) {
-            Some(w) => {
+            SampleResult::Sampled(w) => {
                 let l = w.len();
                 let mut expected = SmtString::from("a").repeat(l - 1);
                 expected.push('b');
                 assert_eq!(w, expected);
             }
-            None => unreachable!("Sample should not return None"),
+            _ => unreachable!("Sample should not return None"),
         }
     }
 }
