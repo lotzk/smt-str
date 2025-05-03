@@ -331,6 +331,18 @@ impl NFA {
         }
     }
 
+    /// Consumes an [SmtChar] from the given state.
+    /// Returns all states reached when reading `c` in state `state`.
+    /// If the set is empty, then the NFA cannot proceed from the given state by reading the given character.
+    ///
+    /// Returns a [StateNotFound] error if the given state is not a state in the NFA.
+    pub fn consume(&self, state: StateId, c: SmtChar) -> Result<HashSet<StateId>, StateNotFound> {
+        self.states
+            .get(state)
+            .ok_or(StateNotFound(state))
+            .map(|s| s.consume(c))
+    }
+
     /// Returns a map from states to the set of their predecessors.
     /// A state p has predecessor q if there is a transition from q to p.
     pub fn predecessors(&self) -> HashMap<StateId, HashSet<StateId>> {
@@ -739,7 +751,7 @@ impl NFA {
         for c in word.iter() {
             let mut next_states = HashSet::new();
             for s in current {
-                for reached in self.states[s].consume(*c) {
+                for reached in self.consume(s, *c).unwrap() {
                     next_states.extend(self.epsilon_closure(reached).unwrap());
                 }
             }

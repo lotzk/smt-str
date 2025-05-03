@@ -188,6 +188,8 @@ pub fn sample_regex(
 pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> SampleResult {
     let mut w = SmtString::empty();
 
+    println!("Sampling from: {}", nfa.dot());
+
     let mut states = BitSet::new();
     if let Some(q0) = nfa.initial() {
         states = BitSet::from_iter(nfa.epsilon_closure(q0).unwrap());
@@ -235,7 +237,14 @@ pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> SampleResult {
             Some(c) => {
                 w.push(c);
                 // set the next state set to the epsilon closure of the destination state
-                states = BitSet::from_iter(nfa.epsilon_closure(transition.get_dest()).unwrap());
+                states = BitSet::from_iter(
+                    states
+                        .iter()
+                        .flat_map(|s| nfa.consume(s, c))
+                        .flatten()
+                        .flat_map(|q| nfa.epsilon_closure(q))
+                        .flatten(),
+                );
             }
             None => continue,
         }
