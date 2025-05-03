@@ -187,9 +187,6 @@ pub fn sample_regex(
 /// Such states do not occur in trim automata.
 pub fn sample_nfa(nfa: &NFA, max: usize, comp: bool) -> SampleResult {
     let mut w = SmtString::empty();
-
-    println!("Sampling from: {}", nfa.dot());
-
     let mut states = BitSet::new();
     if let Some(q0) = nfa.initial() {
         states = BitSet::from_iter(nfa.epsilon_closure(q0).unwrap());
