@@ -52,7 +52,7 @@ use std::collections::{BTreeSet, HashMap};
 /// let r3 = builder1.union(smallvec![r1.clone(), r2.clone()]);
 ///
 /// // The following assertion will hold, although we wanted r3 to accept "a" and "b"
-/// assert!(!r3.accepts(&"a".into()), "{}", r3);
+/// assert!(!r3.accepts(&"b".into()), "Expected {} to accept 'b'", r3);
 /// ```
 #[derive(Debug)]
 pub struct ReBuilder {
@@ -436,20 +436,36 @@ impl ReBuilder {
         // Filter out empty terms as they are the identity element of union
         // Collect the remaining terms into a set to deduplicate and make the order deterministic
         #[allow(clippy::mutable_key_type)]
-        let rs: BTreeSet<Regex> = rs
-            .into_iter()
-            .filter(|i| i.none() != Some(true))
-            .flat_map(|i| {
-                if let ReOp::Union(rs) = &i.op() {
-                    rs.clone()
-                } else {
-                    smallvec![i]
+        let mut cleaned: BTreeSet<Regex> = BTreeSet::new();
+        let mut ranges: Option<Alphabet> = None;
+        for r in rs.into_iter().filter(|r| r.none() != Some(true)) {
+            if cleaned.contains(&self.comp(r.clone())) {
+                // if a union contains a regex and its complement, then it is the unviversal regex
+                return self.all();
+            }
+
+            match r.op() {
+                ReOp::Range(r) => match ranges {
+                    Some(ref mut ranges) => ranges.insert(*r),
+                    None => ranges = Some(Alphabet::from(*r)),
+                },
+                ReOp::None => (),
+                ReOp::Any => ranges = Some(Alphabet::full()),
+                ReOp::All => return self.all(),
+                ReOp::Union(rs) => {
+                    // Flatten
+                    cleaned.extend(BTreeSet::from_iter(rs.clone()));
                 }
-            })
-            .collect();
-
-        let rs: SmallVec<[Rc<ReNode>; 2]> = rs.into_iter().collect();
-
+                _ => {
+                    cleaned.insert(r);
+                }
+            }
+        }
+        if let Some(a) = ranges {
+            let rs: SmallVec<[Regex; 2]> = a.iter_ranges().map(|r| self.range(r)).collect();
+            cleaned.insert(self.intern(ReOp::Union(rs)));
+        }
+        let rs: SmallVec<[Rc<ReNode>; 2]> = cleaned.into_iter().collect();
         if rs.is_empty() {
             self.none()
         } else if rs.len() == 1 {
@@ -671,6 +687,8 @@ impl ReBuilder {
             self.all()
         } else if r.universal().unwrap_or(false) {
             self.none()
+        } else if let ReOp::Comp(r) = r.op() {
+            r.clone()
         } else {
             self.intern(ReOp::Comp(r))
         }
@@ -1114,6 +1132,23 @@ mod test {
         let b = builder.allchar();
         let c = builder.concat(smallvec![b.clone(), b.clone()]);
         assert_eq!(c.universal(), Some(false));
+    }
+
+    #[test]
+    fn test_union_with_comp_literals() {
+        let mut rb = ReBuilder::default();
+
+        let a = rb.to_re("a".into());
+        let comp_a = rb.comp(a.clone());
+        let got = rb.union(smallvec![comp_a, a]);
+
+        assert_eq!(
+            got.op(),
+            &ReOp::All,
+            "Expected:\n{}\nGot\n{}",
+            ReOp::All,
+            got
+        );
     }
 
     #[test]
